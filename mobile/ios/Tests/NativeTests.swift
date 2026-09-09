@@ -8,7 +8,18 @@ final class NativeTests: XCTestCase {
         let data = try Data(contentsOf:fixtures.appendingPathComponent("encrypted.bin"))
         let plain = try NativeMedia.decrypt(data,key:Data(repeating:7,count:16),iv:Data(repeating:3,count:16))
         XCTAssertEqual(String(data:plain,encoding:.utf8),"StreamHarbor AES test")
-        XCTAssertThrowsError(try NativeMedia.decrypt(data,key:Data(repeating:8,count:16),iv:Data(repeating:3,count:16)))
+        // CBC is unauthenticated: a wrong key can accidentally produce valid padding.
+        // Flip the preceding ciphertext block's last byte to turn padding 0x0c into 0xff.
+        XCTAssertEqual(data.count,32)
+        var invalidPadding = data
+        invalidPadding[invalidPadding.count - 17] ^= 0xf3
+        XCTAssertThrowsError(try NativeMedia.decrypt(invalidPadding,key:Data(repeating:7,count:16),iv:Data(repeating:3,count:16)))
+        invalidPadding = data
+        invalidPadding[invalidPadding.count - 17] ^= 0x0c
+        XCTAssertThrowsError(try NativeMedia.decrypt(invalidPadding,key:Data(repeating:7,count:16),iv:Data(repeating:3,count:16)))
+        invalidPadding = data
+        invalidPadding[invalidPadding.count - 18] ^= 1
+        XCTAssertThrowsError(try NativeMedia.decrypt(invalidPadding,key:Data(repeating:7,count:16),iv:Data(repeating:3,count:16)))
     }
     func testRemuxTransportStreamAndSeparateAudio() throws {
         let directory = try fixtures

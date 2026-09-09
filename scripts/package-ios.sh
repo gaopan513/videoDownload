@@ -7,17 +7,17 @@ mkdir -p "$BUILD" "$ROOT/mobile/ios/public" "$ROOT/release/ios"
 cp -R "$ROOT/mobile/dist/" "$ROOT/mobile/ios/public/"
 "$ROOT/.tools/XcodeGen/.build/release/xcodegen" generate --spec "$ROOT/mobile/ios/project.yml"
 PROJECT="$ROOT/mobile/ios/StreamHarbor.xcodeproj"
-xcodebuild -resolvePackageDependencies -project "$PROJECT" -scheme StreamHarbor -clonedSourcePackagesDirPath "$BUILD/packages" > "$BUILD/packages.log" 2>&1
+xcodebuild -resolvePackageDependencies -project "$PROJECT" -scheme StreamHarbor -clonedSourcePackagesDirPath "$BUILD/packages" 2>&1 | tee "$BUILD/packages.log"
 # Simulator code is tested, but only an iphoneos arm64 archive goes into the IPA.
 DEVICE="$(xcrun simctl list devices available -j | python3 -c 'import sys,json; d=json.load(sys.stdin); print(next(x["udid"] for k,v in d["devices"].items() if "iOS" in k for x in v if x["name"].startswith("iPhone")))')"
 xcodebuild test -project "$PROJECT" -scheme StreamHarbor \
   -destination "platform=iOS Simulator,id=$DEVICE" -derivedDataPath "$BUILD/simulator" \
   -clonedSourcePackagesDirPath "$BUILD/packages" -resultBundlePath "$BUILD/native-tests.xcresult" \
-  CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- > "$BUILD/simulator.log" 2>&1
+  CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- 2>&1 | tee "$BUILD/simulator.log"
 xcodebuild archive -project "$PROJECT" -scheme StreamHarbor -configuration Release \
   -destination 'generic/platform=iOS' -archivePath "$BUILD/StreamHarbor.xcarchive" \
   -derivedDataPath "$BUILD/device" -clonedSourcePackagesDirPath "$BUILD/packages" \
-  CODE_SIGNING_ALLOWED=NO ARCHS=arm64 > "$BUILD/archive.log" 2>&1
+  CODE_SIGNING_ALLOWED=NO ARCHS=arm64 2>&1 | tee "$BUILD/archive.log"
 mkdir -p "$BUILD/payload/Payload"
 ditto "$BUILD/StreamHarbor.xcarchive/Products/Applications/StreamHarbor.app" "$BUILD/payload/Payload/StreamHarbor.app"
 xcrun lipo -verify_arch arm64 "$BUILD/payload/Payload/StreamHarbor.app/StreamHarbor"

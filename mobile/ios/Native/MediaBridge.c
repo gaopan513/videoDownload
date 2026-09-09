@@ -135,5 +135,17 @@ finish:
     avformat_close_input(&input); av_packet_free(&packet); av_frame_free(&frame); return result;
 }
 int harbor_decrypt(const uint8_t *input, size_t size, const uint8_t *key, const uint8_t *iv, uint8_t *output, size_t *written) {
-    return CCCrypt(kCCDecrypt,kCCAlgorithmAES,kCCOptionPKCS7Padding,key,16,iv,input,size,output,size,written);
+    // Validate every PKCS7 byte explicitly, including malformed or wrong-key input.
+    if (!input || !key || !iv || !output || !written || !size || size % 16) return kCCParamError;
+    *written = 0;
+    size_t decrypted = 0;
+    CCCryptorStatus status = CCCrypt(kCCDecrypt,kCCAlgorithmAES,0,key,16,iv,input,size,output,size,&decrypted);
+    if (status != kCCSuccess) return status;
+    unsigned padding = output[decrypted - 1];
+    if (!padding || padding > 16 || padding > decrypted) return kCCDecodeError;
+    unsigned invalid = 0;
+    for (unsigned i = 0; i < padding; i++) invalid |= output[decrypted - 1 - i] ^ padding;
+    if (invalid) return kCCDecodeError;
+    *written = decrypted - padding;
+    return kCCSuccess;
 }
