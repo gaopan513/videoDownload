@@ -20,7 +20,7 @@ xcodebuild archive -project "$PROJECT" -scheme StreamHarbor -configuration Relea
   CODE_SIGNING_ALLOWED=NO ARCHS=arm64 2>&1 | tee "$BUILD/archive.log"
 mkdir -p "$BUILD/payload/Payload"
 ditto "$BUILD/StreamHarbor.xcarchive/Products/Applications/StreamHarbor.app" "$BUILD/payload/Payload/StreamHarbor.app"
-xcrun lipo -verify_arch arm64 "$BUILD/payload/Payload/StreamHarbor.app/StreamHarbor"
+xcrun lipo "$BUILD/payload/Payload/StreamHarbor.app/StreamHarbor" -verify_arch arm64
 python3 scripts/check-ios-bundle.py "$BUILD/payload/Payload/StreamHarbor.app"
 (cd "$BUILD/payload" && ditto -c -k --sequesterRsrc --keepParent Payload "$ROOT/release/ios/StreamHarbor-iOS-unsigned.ipa")
 (cd "$ROOT/release/ios" && shasum -a 256 StreamHarbor-iOS-unsigned.ipa > SHA256SUMS.txt)
@@ -33,3 +33,4 @@ cp "$ROOT/.tools/ios-media/source/ffmpeg-7.1.1.tar.xz" "$BUILD/relink/"
 cp "$ROOT/scripts/build-ios-media.sh" "$ROOT/mobile/THIRD_PARTY.md" "$ROOT/.tools/ios-media/FFmpeg-LICENSE.txt" "$BUILD/relink/"
 ditto "$BUILD/device/Build/Intermediates.noindex/ArchiveIntermediates/StreamHarbor" "$BUILD/relink/ArchiveIntermediates"
 ditto -c -k --keepParent "$BUILD/relink" "$ROOT/release/ios/StreamHarbor-relink-materials.zip"
+
