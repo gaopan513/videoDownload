@@ -1,0 +1,58 @@
+name: iOS prototype IPA
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ios-prototype-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.19.0'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - name: Build mobile UI
+        run: |
+          npm ci --prefix mobile
+          npm run build --prefix mobile
+      - name: Test HLS parser and cookie boundaries
+        run: swift test --package-path mobile/ios/Core
+      - uses: actions/cache@v4
+        id: media
+        with:
+          path: .tools/ios-media
+          key: ios-media-${{ runner.arch }}-xcode26.3-${{ hashFiles('scripts/build-ios-media.sh') }}
+      - name: Build pinned FFmpeg libraries
+        if: steps.media.outputs.cache-hit != 'true'
+        run: bash scripts/build-ios-media.sh
+      - name: Build pinned XcodeGen
+        run: |
+          git clone --depth 1 --branch 2.44.1 https://github.com/yonaskolb/XcodeGen.git .tools/XcodeGen
+          swift build --package-path .tools/XcodeGen -c release --product xcodegen
+      - name: Test native media and archive unsigned IPA
+        run: bash scripts/package-ios.sh
+      - name: Upload IPA and installation material
+        uses: actions/upload-artifact@v4
+        with:
+          name: StreamHarbor-iOS-prototype
+          path: release/ios/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload build and test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-build-diagnostics
+          path: |
+            .tools/ios-build/*.log
+            .tools/ios-build/*.xcresult
+            .tools/ios-media/*/build/*-output.txt
+          retention-days: 7

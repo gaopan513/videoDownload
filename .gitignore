@@ -1,0 +1,11 @@
+node_modules/
+.tools/
+dist/
+release/
+artifacts/*.png
+*.log
+.test-data/
+mobile/ios/public/
+mobile/ios/*.xcodeproj/
+mobile/ios/Core/.build/
+mobile/ios/Core/.swiftpm/

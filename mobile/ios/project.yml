@@ -1,0 +1,73 @@
+name: StreamHarbor
+options:
+  bundleIdPrefix: local.streamharbor
+  deploymentTarget:
+    iOS: '17.0'
+packages:
+  Capacitor:
+    url: https://github.com/ionic-team/capacitor-swift-pm.git
+    exactVersion: 8.0.0
+settings:
+  base:
+    SWIFT_VERSION: '5.0'
+    IPHONEOS_DEPLOYMENT_TARGET: '17.0'
+    CODE_SIGNING_ALLOWED: NO
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+targets:
+  StreamHarbor:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+        excludes: [Info.plist]
+      - path: Core
+        excludes: [Package.swift, Tests, .build, .swiftpm, Package.resolved]
+      - path: Native
+      - path: public
+        type: folder
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: local.streamharbor.ios
+        INFOPLIST_FILE: App/Info.plist
+        TARGETED_DEVICE_FAMILY: '1'
+        SWIFT_OBJC_BRIDGING_HEADER: Native/MediaBridge.h
+        HEADER_SEARCH_PATHS: '$(inherited) $(PROJECT_DIR)/../../.tools/ios-media/include'
+        LIBRARY_SEARCH_PATHS: '$(inherited) $(PROJECT_DIR)/../../.tools/ios-media/$(PLATFORM_NAME)/lib'
+        OTHER_LDFLAGS: '$(inherited) -lavformat -lavcodec -lavutil -lswresample -lz -lbz2 -liconv'
+        GENERATE_INFOPLIST_FILE: NO
+    dependencies:
+      - package: Capacitor
+        product: Capacitor
+      - package: Capacitor
+        product: Cordova
+      - sdk: AVFoundation.framework
+      - sdk: VideoToolbox.framework
+      - sdk: AudioToolbox.framework
+      - sdk: Security.framework
+      - sdk: Photos.framework
+      - sdk: WebKit.framework
+  HarborNativeTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+        excludes: [Fixtures]
+      - path: Tests/Fixtures
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - target: StreamHarbor
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: local.streamharbor.ios.tests
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_OBJC_BRIDGING_HEADER: Native/MediaBridge.h
+schemes:
+  StreamHarbor:
+    build:
+      targets:
+        StreamHarbor: all
+        HarborNativeTests: [test]
+    test:
+      targets: [HarborNativeTests]
