@@ -14,6 +14,13 @@ jobs:
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
     steps:
       - uses: actions/checkout@v4
+      - name: Check shell script line endings
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          for path in Path('scripts').glob('*.sh'):
+              assert b'\r' not in path.read_bytes(), f'{path}: CR characters are not allowed'
+          PY
       - uses: actions/setup-node@v4
         with:
           node-version: '24.19.0'
@@ -40,6 +47,7 @@ jobs:
       - name: Test native media and archive unsigned IPA
         run: bash scripts/package-ios.sh
       - name: Upload IPA and installation material
+        if: ${{ always() && hashFiles('release/ios/StreamHarbor-iOS-unsigned.ipa') != '' }}
         uses: actions/upload-artifact@v4
         with:
           name: StreamHarbor-iOS-prototype
