@@ -6,7 +6,7 @@ import Photos
 public class HarborPlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "HarborPlugin"
     public let jsName = "Harbor"
-    public let pluginMethods: [CAPPluginMethod] = ["snapshot","resolve","inspect","add","control","exportFile"].map { CAPPluginMethod(name:$0,returnType:CAPPluginReturnPromise) }
+    public let pluginMethods: [CAPPluginMethod] = ["snapshot","resolve","inspect","add","control","deleteRecord","exportFile"].map { CAPPluginMethod(name:$0,returnType:CAPPluginReturnPromise) }
     private var resolver: Resolver?
     private var candidates: [String:MediaCandidate] = [:]
     private var prepared: [String:([DownloadPart],Date)] = [:]
@@ -85,6 +85,12 @@ public class HarborPlugin: CAPPlugin, CAPBridgedPlugin {
                 presenter.present(sheet,animated:true)
             } else { throw HarborError.message("不支持的导出方式") }
             return [:]
+        }
+    }
+    @objc func deleteRecord(_ call: CAPPluginCall) {
+        run(call) { engine in
+            guard let id = call.getString("id") else { throw HarborError.message("任务标识缺失") }
+            try engine.deleteRecord(id); return [:]
         }
     }
 }

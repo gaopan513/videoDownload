@@ -73,7 +73,7 @@ import CryptoKit
         publish(); schedule()
     }
     func control(_ id: String, action: String) async throws {
-        guard let j = jobs.firstIndex(where: { $0.id == id }) else { throw HarborError.message("任务不存在") }
+        guard var j = jobs.firstIndex(where: { $0.id == id }) else { throw HarborError.message("任务不存在") }
         switch action {
         case "pause":
             guard ["queued","downloading"].contains(jobs[j].state) else { throw HarborError.message("此阶段不能暂停") }
@@ -84,6 +84,8 @@ import CryptoKit
                 let old = jobs[j]
                 let http = HTTP(old.candidate.context); defer { http.close() }
                 let fresh = try await http.prepare(old.candidate)
+                guard let current = jobs.firstIndex(where: { $0.id == id }) else { throw HarborError.message("任务已删除") }
+                j = current
                 guard jobs[j].state == old.state else { throw HarborError.message("任务状态已改变，请重试") }
                 guard fresh.count == old.parts.count, zip(fresh,old.parts).allSatisfy({ pair in pair.0.source == pair.1.source && pair.0.key == pair.1.key }) else { throw HarborError.message("资源已变化，无法安全续传。旧数据保留，请取消后重新解析下载") }
             }
@@ -106,6 +108,14 @@ import CryptoKit
         let path = try FileManager.default.url(for:.documentDirectory,in:.userDomainMask,appropriateFor:nil,create:true).appendingPathComponent(filename)
         guard FileManager.default.fileExists(atPath:path.path) else { throw HarborError.message("视频文件已被移动或删除") }
         return path
+    }
+    func deleteRecord(_ id: String) throws {
+        guard let job = jobs.first(where: { $0.id == id }) else { return }
+        guard ["complete","cancelled"].contains(job.state) else { throw HarborError.message("请先取消任务，再删除记录") }
+        guard !transfers.keys.contains(where: { $0.hasPrefix(id + ":") }) else { throw HarborError.message("后台任务正在结束，请稍后重试") }
+        // Commit first: failed writes leave the visible queue unchanged. Output is untouched.
+        try RecordHistory.delete(id,from:&jobs,save:store.save)
+        publish()
     }
     private func suspend(_ id: String) { for (name,task) in transfers where name.hasPrefix(id + ":") { task.suspend() } }
     private func schedule() {

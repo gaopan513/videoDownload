@@ -17,7 +17,7 @@ for file in (root / 'mobile').rglob('*'):
 files.extend(root / name for name in [
     '.github/workflows/ios-prototype.yml','.gitattributes','.gitignore','LICENSE',
     'scripts/build-ios-media.sh','scripts/package-ios.sh','scripts/check-ios-bundle.py',
-    'scripts/check-ios-source.py','scripts/ios-fixtures.mjs','scripts/export-ios-source.py'
+    'scripts/check-ios-source.py','scripts/ios-fixtures.mjs','scripts/export-ios-source.py','scripts/test-ios-resolver.mjs'
 ])
 with ZipFile(archive,'w',compression=ZIP_DEFLATED) as bundle:
     for file in sorted(files):

@@ -10,6 +10,7 @@ import WebKit
     private var discovered: [(URL,URL,String)] = []
     private var source: URL?
     private var finishing = false
+    private var navigationErrors: [String] = []
     private var userAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Version/17.0 Mobile/15E148 Safari/604.1"
 
     func resolve(_ url: URL, interactive: Bool, presenter: UIViewController) async throws -> [MediaCandidate] {
@@ -18,7 +19,7 @@ import WebKit
             return try await expand(url,context:WebContext(referer:url,userAgent:userAgent,cookies:[]),title:"视频",hint:url.pathExtension == "m3u8" ? "hls" : "mp4")
         }
         return try await withCheckedThrowingContinuation { continuation in
-            self.continuation = continuation; self.source = url; discovered = []; finishing = false
+            self.continuation = continuation; self.source = url; discovered = []; finishing = false; navigationErrors = []
             let controller = WKUserContentController()
             controller.add(self,name:"harborMedia")
             controller.addUserScript(WKUserScript(source:Self.script,injectionTime:.atDocumentStart,forMainFrameOnly:false))
@@ -45,13 +46,25 @@ import WebKit
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard !finishing, discovered.count < 64, let info = message.body as? [String:String],
               let raw = info["url"], raw.count <= 8192, let url = try? webURL(raw),
-              let frame = message.frameInfo.request.url, (try? webURL(frame.absoluteString)) != nil else { return }
-        if !discovered.contains(where: { $0.0 == url }) { discovered.append((url,frame,info["kind"] == "hls" ? "hls" : "mp4")) }
+              let frame = message.frameInfo.request.url.flatMap({ try? webURL($0.absoluteString) }) ?? source else { return }
+        if !discovered.contains(where: { $0.0 == url }) { discovered.append((url,frame,info["kind"] ?? "unknown")) }
     }
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-        guard let url = navigationAction.request.url, (try? webURL(url.absoluteString)) != nil else { decisionHandler(.cancel); return }
+        guard let url = navigationAction.request.url else { decisionHandler(.cancel); return }
+        // Empty/srcdoc frames bootstrap many embedded players before loading their media.
+        if !((navigationAction.targetFrame?.isMainFrame) ?? true),
+           ["about:blank", "about:srcdoc"].contains(url.absoluteString) { decisionHandler(.allow); return }
+        guard (try? webURL(url.absoluteString)) != nil else { decisionHandler(.cancel); return }
         if navigationAction.targetFrame == nil { decisionHandler(.cancel); return }
         decisionHandler(.allow)
+    }
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { record(error) }
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { record(error) }
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) { navigationErrors.append("网页进程已终止，请重新识别") }
+    private func record(_ error: Error) {
+        let e = error as NSError
+        guard e.code != NSURLErrorCancelled, navigationErrors.count < 4 else { return }
+        navigationErrors.append("网页加载失败（\(e.domain) \(e.code)）")
     }
     func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse, decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
         let mime = navigationResponse.response.mimeType ?? ""
@@ -76,13 +89,20 @@ import WebKit
             if let agentString = rawAgent as? String { userAgent = agentString }
             let title = String((web.title ?? "视频").prefix(160))
             var results: [MediaCandidate] = []
+            var failures: [String] = []
             // Process only a bounded number of detections; the user can reopen the page for another player.
             for (url,referer,hint) in discovered.prefix(12) {
                 let context = WebContext(referer:referer,userAgent:userAgent,cookies:stored)
-                let items = try? await expand(url,context:context,title:title,hint:hint)
-                if let items { results.append(contentsOf:items) }
+                do { results.append(contentsOf:try await expand(url,context:context,title:title,hint:hint)) }
+                catch {
+                    let detail = (error as? HarborError)?.errorDescription ?? "网络请求失败（\((error as NSError).code)）"
+                    failures.append("\(url.host ?? "媒体服务器")：\(detail)")
+                }
             }
-            if results.isEmpty { finish(.failure(HarborError.message("未识别到可下载的 MP4/HLS。请确认视频已播放；该站可能需要进一步适配。"))) }
+            if results.isEmpty {
+                let detail = (navigationErrors + Array(failures.prefix(3))).joined(separator:"；")
+                finish(.failure(HarborError.message("识别失败：发现 \(discovered.count) 个媒体地址。\(detail.isEmpty ? "请使用打开网页识别，播放视频后点击完成识别。" : detail)")))
+            }
             else { finish(.success(Array(results.prefix(32)))) }
         }
     }
@@ -93,6 +113,12 @@ import WebKit
         let saved = continuation; continuation = nil; finishing = false; saved?.resume(with:result)
     }
     private func expand(_ url: URL, context: WebContext, title: String, hint: String) async throws -> [MediaCandidate] {
+        if hint == "unknown" {
+            let probe = HTTP(context); defer { probe.close() }
+            let kind = try await probe.mediaKind(url)
+            probe.close()
+            return try await expand(url,context:context,title:title,hint:kind)
+        }
         if hint == "mp4" { return [MediaCandidate(title:title,url:url,audioURL:nil,kind:"mp4",quality:"源画质",context:context)] }
         let http = HTTP(context); defer { http.close() }
         let playlist = try await http.playlist(url)
@@ -103,25 +129,30 @@ import WebKit
             return tracks.map { MediaCandidate(title:title,url:variant.url,audioURL:$0.url,kind:"hls",quality:variant.quality + " · " + $0.name,context:context) }
         }
     }
-    private static let script = #"""
+    static let script = #"""
     (() => {
-      const send = (raw, mime = '') => {
+      const send = (raw, mime = '', media = false) => {
         try {
+          if (!raw) return;
           const u = new URL(raw, location.href);
           if (!/^https?:$/.test(u.protocol)) return;
           const hls = /mpegurl/i.test(mime) || /\.m3u8$/i.test(u.pathname);
-          if (hls || /video\/mp4/i.test(mime) || /\.(mp4|m4v)$/i.test(u.pathname))
-            window.webkit.messageHandlers.harborMedia.postMessage({url:u.href,kind:hls?'hls':'mp4'});
+          const mp4 = /video\/mp4/i.test(mime) || /\.(mp4|m4v)$/i.test(u.pathname);
+          if (hls || mp4 || media)
+            window.webkit.messageHandlers.harborMedia.postMessage({url:u.href,kind:hls?'hls':mp4?'mp4':'unknown'});
         } catch {}
       };
       const scan = () => {
-        document.querySelectorAll('video,source').forEach(v => send(v.currentSrc || v.src, v.type || ''));
+        document.querySelectorAll('video,video source').forEach(v => send(v.currentSrc || v.src, v.type || '', true));
         performance.getEntriesByType('resource').forEach(r => send(r.name));
       };
+      // Observe requests immediately: long-running streams need not finish before detection.
+      const requestURL = value => typeof value === 'string' ? value : value instanceof URL ? value.href : value && value.url;
       const originalFetch = window.fetch;
-      window.fetch = function(...args) { return originalFetch.apply(this,args).then(r => {send(r.url,r.headers.get('content-type') || ''); return r;}); };
+      window.fetch = function(...args) { send(requestURL(args[0])); return originalFetch.apply(this,args).then(r => {send(r.url,r.headers.get('content-type') || ''); return r;}); };
       const open = XMLHttpRequest.prototype.open;
       XMLHttpRequest.prototype.open = function(...args) {
+        send(args[1]);
         this.addEventListener('load', () => { try {send(this.responseURL,this.getResponseHeader('content-type') || '');} catch {} });
         return open.apply(this,args);
       };

@@ -9,6 +9,15 @@ const samples = [
 ];
 const states: Record<string,string> = { queued:'等待下载', downloading:'下载中', paused:'已暂停', processing:'正在合并', waitingForeground:'等待前台合并', complete:'已完成', failed:'失败', cancelled:'已取消' };
 let dispose: (() => void) | undefined;
+const deleting = ref<string[]>([]);
+async function deleteRecord(t: TaskView) {
+  if (deleting.value.includes(t.id) || !confirm('删除此记录？已完成的视频仍保留在手机中，可通过文件应用访问。')) return;
+  deleting.value.push(t.id);
+  try { await action(async () => {
+    await harbor.deleteRecord({ id: t.id });
+    tasks.value = (await harbor.snapshot()).tasks;
+  }); } finally { deleting.value = deleting.value.filter(id => id !== t.id); }
+}
 async function action(fn: () => Promise<unknown>) { try { notice.value = ''; await fn(); } catch(e) { notice.value = e instanceof Error ? e.message : String(e); } }
 async function resolve(interactive: boolean) {
   busy.value = true; candidates.value = [];
@@ -58,6 +67,7 @@ onUnmounted(() => dispose?.());
       <article v-for="t in tasks" :key="t.id" class="panel task"><div class="section-heading"><h3>{{ t.title }}</h3><span>{{ states[t.state] || t.state }}</span></div><progress :value="t.done" :max="t.total || 1"/><p class="hint">{{ t.message }}</p><div class="buttons">
         <button v-if="['queued','downloading'].includes(t.state)" @click="control(t,'pause')">暂停</button><button v-if="t.state === 'paused'" @click="control(t,'resume')">继续</button><button v-if="t.state === 'failed'" @click="control(t,'retry')">重试</button><button v-if="!['complete','cancelled','processing'].includes(t.state)" @click="control(t,'cancel')">取消</button>
         <template v-if="t.state === 'complete'"><button class="primary" @click="action(() => harbor.exportFile({id:t.id,destination:'share'}))">分享 / 存储到文件</button><button @click="action(() => harbor.exportFile({id:t.id,destination:'photos'}))">存到相册</button></template>
+        <button v-if="['complete','cancelled'].includes(t.state)" :disabled="deleting.includes(t.id)" @click="deleteRecord(t)">{{ deleting.includes(t.id) ? '正在删除…' : '删除记录' }}</button>
       </div></article>
     </section><footer>锁屏下载由系统调度 · 回到前台完成合并</footer>
   </main>

@@ -30,6 +30,7 @@ jobs:
         run: |
           npm ci --prefix mobile
           npm run build --prefix mobile
+          node --test scripts/test-ios-resolver.mjs
       - name: Test HLS parser and cookie boundaries
         run: swift test --package-path mobile/ios/Core
       - uses: actions/cache@v4

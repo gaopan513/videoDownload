@@ -9,6 +9,18 @@ final class HTTP: NSObject, URLSessionTaskDelegate {
         return URLSession(configuration:c,delegate:self,delegateQueue:nil)
     }()
     func close() { session.invalidateAndCancel() }
+    func mediaKind(_ url: URL) async throws -> String {
+        let (stream,response) = try await session.bytes(for:context.request(url,range:ByteRange(offset:0,length:511)))
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else { throw HarborError.message("媒体探测请求失败") }
+        let mime = (http.mimeType ?? "").lowercased()
+        if mime.contains("mpegurl") { return "hls" }
+        if mime == "video/mp4" { return "mp4" }
+        var prefix = Data()
+        for try await byte in stream { prefix.append(byte); if prefix.count >= 512 { break } }
+        if String(data:prefix,encoding:.utf8)?.trimmingCharacters(in:.whitespacesAndNewlines).hasPrefix("#EXTM3U") == true { return "hls" }
+        if prefix.count >= 8, String(data:prefix.subdata(in:4..<8),encoding:.ascii) == "ftyp" { return "mp4" }
+        throw HarborError.message("视频地址未返回可识别的 MP4/HLS")
+    }
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
         guard let u = request.url, (try? webURL(u.absoluteString)) != nil else { completionHandler(nil); return }
         var req = context.request(u)

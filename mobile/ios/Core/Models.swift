@@ -90,3 +90,13 @@ struct DownloadJob: Codable {
          "done":state == "complete" ? 1 : parts.filter(\.finished).count, "total":state == "complete" ? 1 : parts.count, "message":message]
     }
 }
+
+enum RecordHistory {
+    static func delete(_ id: String, from jobs: inout [DownloadJob], save: ([DownloadJob]) throws -> Void) throws {
+        guard let job = jobs.first(where: { $0.id == id }) else { return }
+        guard ["complete","cancelled"].contains(job.state) else { throw HarborError.message("请先取消任务，再删除记录") }
+        let remaining = jobs.filter { $0.id != id }
+        try save(remaining)
+        jobs = remaining
+    }
+}
