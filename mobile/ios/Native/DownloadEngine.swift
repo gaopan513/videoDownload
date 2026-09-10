@@ -8,6 +8,9 @@ import CryptoKit
     private let store: SecureStore
     private(set) var jobs: [DownloadJob]
     private var transfers: [String:URLSessionDownloadTask] = [:]
+    private var finalization = DownloadFinalizationGate()
+    private let hashQueue = DispatchQueue(label:"local.streamharbor.download-hash",qos:.utility)
+    private var progressThrottle = DownloadProgressThrottle()
     private var ready = false
     private var processing = false
     private var observer: NSObjectProtocol?
@@ -15,13 +18,13 @@ import CryptoKit
     // redirects never call the redirect delegate; URLSession must apply cookie scoping itself.
     private let cookies = URLSessionConfiguration.ephemeral.httpCookieStorage!
     var changed: (([[String:Any]]) -> Void)?
-    var backgroundCompletion: (() -> Void)?
+    var backgroundCompletion: (() -> Void)? { didSet { finishBackgroundEventsIfReady() } }
     var startup: Task<Void,Never>?
     var storageError: String?
     private lazy var session: URLSession = {
         let c = URLSessionConfiguration.background(withIdentifier:Self.sessionID)
         c.sessionSendsLaunchEvents = true; c.isDiscretionary = false
-        c.httpMaximumConnectionsPerHost = 4; c.httpShouldSetCookies = true
+        c.httpMaximumConnectionsPerHost = DownloadScheduling.connectionsPerHost; c.httpShouldSetCookies = true
         c.httpCookieStorage = cookies; c.urlCredentialStorage = nil
         c.timeoutIntervalForRequest = 60; c.timeoutIntervalForResource = 24*60*60
         return URLSession(configuration:c,delegate:self,delegateQueue:.main)
@@ -119,31 +122,38 @@ import CryptoKit
         publish()
     }
     private func suspend(_ id: String) { for (name,task) in transfers where name.hasPrefix(id + ":") { task.suspend() } }
-    private func schedule() {
+    private func schedule(persistChanges: Bool = false) {
         guard ready, storageError == nil else { return }
+        var needsSave = persistChanges
+        var created: [(String,URLSessionDownloadTask)] = []
         var active = jobs.filter { $0.state == "downloading" }.count
         for j in jobs.indices {
-            if jobs[j].state == "queued", active < 2 { jobs[j].state = "downloading"; active += 1 }
+            if jobs[j].state == "queued", active < DownloadScheduling.activeJobs { jobs[j].state = "downloading"; active += 1; needsSave = true }
             guard jobs[j].state == "downloading" else { continue }
-            if jobs[j].parts.allSatisfy(\.finished) { jobs[j].state = "waitingForeground"; jobs[j].message = "下载完成，回到前台后合并"; active -= 1; continue }
+            if jobs[j].parts.allSatisfy(\.finished) { jobs[j].state = "waitingForeground"; jobs[j].message = "下载完成，回到前台后合并"; active -= 1; needsSave = true; continue }
             let id = jobs[j].id
-            var count = transfers.keys.filter { $0.hasPrefix(id + ":") }.count
-            for (name,task) in transfers where name.hasPrefix(id + ":") && task.state == .suspended { task.resume() }
-            for p in jobs[j].parts.indices where !jobs[j].parts[p].finished {
+            let prefix = id + ":"
+            let occupied = Set(Set(transfers.keys).union(finalization.pending).filter { $0.hasPrefix(prefix) }.compactMap { Int($0.dropFirst(prefix.count)) })
+            for p in DownloadScheduling.pendingIndices(jobs[j].parts,occupied:occupied) {
                 let name = "\(id):\(p)"
-                guard count < 4 else { break }
-                if transfers[name] != nil { continue }
                 let part = jobs[j].parts[p]
+                jobs[j].parts[p].received = 0; jobs[j].parts[p].expected = 0
                 var req = jobs[j].candidate.context.request(part.source.url,range:part.source.range)
                 req.setValue(nil,forHTTPHeaderField:"Cookie")
                 let task = session.downloadTask(with:req); task.taskDescription = name
-                transfers[name] = task; count += 1
-                // Save source, key and destination before allowing a background transfer to start.
-                guard persist() else { task.cancel(); return }
-                task.resume()
+                transfers[name] = task; created.append((name,task))
             }
         }
-        persist(); publish()
+        // add/retry persist the entire source/key/destination plan. Only state
+        // transitions need another save here, once per batch, before resuming.
+        if needsSave && !persist() {
+            for (name,task) in created { transfers.removeValue(forKey:name); task.cancel() }
+            publish(); return
+        }
+        for (name,task) in transfers where task.state == .suspended {
+            if let (j,_) = indices(name), jobs[j].state == "downloading" { task.resume() }
+        }
+        if needsSave { publish() }
         if UIApplication.shared.applicationState == .active && !processing,
            let j = jobs.firstIndex(where:{$0.state == "waitingForeground"}) { merge(j) }
     }
@@ -153,17 +163,17 @@ import CryptoKit
         return (j,p)
     }
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
-        guard let name = downloadTask.taskDescription, let (j,p) = indices(name) else { return }
+        guard let name = downloadTask.taskDescription, transfers[name] === downloadTask,
+              let (j,p) = indices(name), jobs[j].state == "downloading" else { return }
         jobs[j].parts[p].received = totalBytesWritten; jobs[j].parts[p].expected = totalBytesExpectedToWrite
         if jobs[j].candidate.kind == "hls", totalBytesWritten > 256*1024*1024 {
-            jobs[j].state = "failed"; jobs[j].message = "单个 HLS 分片超过 256 MiB，原型无法处理"; downloadTask.cancel(); persist()
-        } else if jobs[j].state == "downloading" {
-            jobs[j].message = jobs[j].candidate.kind == "hls" ? "已完成 \(jobs[j].parts.filter(\.finished).count) / \(jobs[j].parts.count) 个分片" : "已接收 \(totalBytesWritten / 1024 / 1024) MiB"
+            jobs[j].state = "failed"; jobs[j].message = "单个 HLS 分片超过 256 MiB"; suspend(jobs[j].id); downloadTask.cancel(); persist(); publish(); return
         }
-        publish()
+        if progressThrottle.shouldPublish(at:ProcessInfo.processInfo.systemUptime) { publish() }
     }
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
-        guard let name = downloadTask.taskDescription, let (j,p) = indices(name), !["cancelled","failed"].contains(jobs[j].state) else { return }
+        guard let name = downloadTask.taskDescription, transfers[name] === downloadTask,
+              let (j,p) = indices(name), !["cancelled","failed"].contains(jobs[j].state) else { return }
         do {
             guard let response = downloadTask.response as? HTTPURLResponse else { throw HarborError.message("媒体响应无效") }
             guard (200...299).contains(response.statusCode) else {
@@ -184,28 +194,59 @@ import CryptoKit
             if FileManager.default.fileExists(atPath:target.path) { try FileManager.default.removeItem(at:target) }
             try FileManager.default.moveItem(at:location,to:target)
             try FileManager.default.setAttributes([.protectionKey:FileProtectionType.completeUntilFirstUserAuthentication],ofItemAtPath:target.path)
-            jobs[j].parts[p].sha256 = try Self.hash(target)
-            jobs[j].parts[p].validator = response.value(forHTTPHeaderField:"ETag") ?? response.value(forHTTPHeaderField:"Last-Modified")
-            jobs[j].parts[p].finished = true; jobs[j].parts[p].received = bytes; jobs[j].parts[p].expected = bytes
-            persist(); publish()
+            let validator = response.value(forHTTPHeaderField:"ETag") ?? response.value(forHTTPHeaderField:"Last-Modified")
+            finalization.begin(name)
+            Task { @MainActor in
+                do {
+                    let digest: String = try await withCheckedThrowingContinuation { continuation in
+                        hashQueue.async {
+                            continuation.resume(with:Result { try Self.hash(target) })
+                        }
+                    }
+                    // Cancellation can delete files/records while the hash is running.
+                    // Re-find by id; a paused/failed job may retain a completed part.
+                    if let (current,part) = indices(name), jobs[current].state != "cancelled" {
+                        jobs[current].parts[part].sha256 = digest
+                        jobs[current].parts[part].validator = validator
+                        jobs[current].parts[part].finished = true
+                        jobs[current].parts[part].received = bytes; jobs[current].parts[part].expected = bytes
+                        persist(); publish()
+                    }
+                } catch {
+                    if let (current,_) = indices(name), jobs[current].state != "cancelled" {
+                        jobs[current].state = "failed"; jobs[current].message = Self.safeError(error)
+                        suspend(jobs[current].id); persist(); publish()
+                    }
+                }
+                finalization.end(name)
+                schedule()
+                finishBackgroundEventsIfReady()
+            }
         } catch {
             jobs[j].state = "failed"; jobs[j].message = Self.safeError(error); suspend(jobs[j].id); persist(); publish()
         }
     }
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        guard let name = task.taskDescription else { return }
+        guard let name = task.taskDescription, transfers[name] === task else { return }
         transfers.removeValue(forKey:name)
-        if let (j,p) = indices(name), let error, jobs[j].state == "downloading", !jobs[j].parts[p].finished {
+        var needsSave = false
+        if let (j,p) = indices(name), let error, jobs[j].state == "downloading", !jobs[j].parts[p].finished, !finalization.pending.contains(name) {
             jobs[j].parts[p].retries += 1
+            needsSave = true
             if jobs[j].parts[p].retries > 2 {
                 jobs[j].state = "failed"; jobs[j].message = "网络中断或下载失败，临时数据保留，可重试"; suspend(jobs[j].id)
             }
             _ = error // Never expose URLs embedded in NSError descriptions.
         }
-        persist(); schedule()
+        schedule(persistChanges:needsSave)
     }
     func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
-        persist(); schedule()
+        finalization.finishEvents()
+        schedule()
+        finishBackgroundEventsIfReady()
+    }
+    private func finishBackgroundEventsIfReady() {
+        guard finalization.takeCompletion(hasHandler:backgroundCompletion != nil) else { return }
         let callback = backgroundCompletion; backgroundCompletion = nil; callback?()
     }
     private func merge(_ index: Int) {
@@ -289,7 +330,13 @@ import CryptoKit
         do { try store.save(jobs); return true }
         catch { storageError = "任务记录无法保存，请检查手机可用空间后重新打开应用"; for task in transfers.values { task.suspend() }; return false }
     }
-    private func publish() { changed?(jobs.map(\.publicValue)) }
+    private func publish() {
+        for j in jobs.indices where jobs[j].state == "downloading" {
+            let bytes = jobs[j].parts.reduce(Int64(0)) { $0 + $1.received }
+            jobs[j].message = jobs[j].candidate.kind == "hls" ? "已完成 \(jobs[j].parts.filter(\.finished).count) / \(jobs[j].parts.count) 个分片 · 已接收 \(bytes / 1024 / 1024) MiB" : "已接收 \(bytes / 1024 / 1024) MiB"
+        }
+        changed?(jobs.map(\.publicValue))
+    }
     private nonisolated static func safeError(_ error: Error) -> String {
         (error as? HarborError)?.errorDescription ?? "文件或媒体处理失败，请检查可用空间；临时数据保留"
     }

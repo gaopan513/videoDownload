@@ -11,6 +11,10 @@ static int open_local(const char *path, AVFormatContext **ctx) {
     AVDictionary *options = NULL;
     av_dict_set(&options, "protocol_whitelist", "file", 0);
     av_dict_set(&options, "allowed_extensions", "ALL", 0);
+    // DownloadEngine generates .plain names after hashing/decryption. FFmpeg 7.1.1
+    // separately matches segment suffixes against the detected demuxer format.
+    // Only app-generated local playlists reach this file-only reader.
+    av_dict_set(&options, "extension_picky", "0", 0);
     // Generated ffconcat files pass local HLS options to their child demuxers.
     // Protocols remain file-only; no network URLs are opened during remuxing.
     av_dict_set(&options, "safe", "0", 0);

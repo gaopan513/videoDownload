@@ -136,6 +136,7 @@ enum HLS {
             lines.append("file '\(file)'")
             lines.append("duration \(duration)")
             lines.append("option allowed_extensions ALL")
+            lines.append("option extension_picky 0")
         }
         return lines.joined(separator:"\n") + "\n"
     }

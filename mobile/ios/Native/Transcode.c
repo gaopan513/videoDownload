@@ -22,6 +22,8 @@ static int input_open(const char *path, AVFormatContext **input) {
     AVDictionary *options=NULL;
     av_dict_set(&options,"protocol_whitelist","file",0);
     av_dict_set(&options,"allowed_extensions","ALL",0);
+    // App-generated local segments use .plain, independent of their format.
+    av_dict_set(&options,"extension_picky","0",0);
     av_dict_set(&options,"safe","0",0);
     int r=avformat_open_input(input,path,NULL,&options);
     av_dict_free(&options);

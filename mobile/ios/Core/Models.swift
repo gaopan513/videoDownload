@@ -109,8 +109,14 @@ struct DownloadJob: Codable {
     var deepVerify: Bool?
     var mode: OutputMode { outputMode ?? .mp4 }
     var publicValue: [String: Any] {
-        ["id":id, "title":candidate.title, "state":state,
-         "done":state == "complete" ? 1 : parts.filter(\.finished).count, "total":state == "complete" ? 1 : parts.count, "message":message,
+        let progress = parts.reduce(0.0) { value,part in
+            if part.finished { return value + 1 }
+            guard part.expected > 0 else { return value }
+            // Keep an unfinished part below 1 until its file hash is committed.
+            return value + min(0.99,max(0,Double(part.received) / Double(part.expected)))
+        }
+        return ["id":id, "title":candidate.title, "state":state,
+         "done":state == "complete" ? 1.0 : progress, "total":state == "complete" ? 1 : parts.count, "message":message,
          "mode":mode.rawValue,"format":mode.fileExtension]
     }
 }

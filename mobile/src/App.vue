@@ -4,11 +4,6 @@ import { harbor, native, type Candidate, type TaskView, type OutputMode } from '
 const outputMode = ref<OutputMode>('mp4'), deep = ref(false), retryModes = ref<Record<string,OutputMode>>({});
 const modes: { value: OutputMode; label: string }[] = [{value:'mp4',label:'无损 MP4'}, {value:'mkv',label:'无损 MKV'}, {value:'transcode',label:'转码 MP4（H.264/AAC）'}];
 const url = ref(''), busy = ref(false), notice = ref(''), candidates = ref<Candidate[]>([]), tasks = ref<TaskView[]>([]);
-const samples = [
-  { name: '毒舌', url: 'https://www.dushe3.app/play/356989-41-4918517.html' },
-  { name: '剧踪', url: 'https://www.juzong01.me/vodplay/60791-1-1/' },
-  { name: '拾光', url: 'https://tv.time1080.xyz/play.php?source=qilin&id=27' }
-];
 const states: Record<string,string> = { queued:'等待下载', downloading:'下载中', paused:'已暂停', processing:'正在合并', waitingForeground:'等待前台合并', complete:'已完成', failed:'失败', cancelled:'已取消' };
 let dispose: (() => void) | undefined;
 const deleting = ref<string[]>([]);
@@ -53,14 +48,12 @@ onUnmounted(() => dispose?.());
 </script>
 <template>
   <main>
-    <header><span class="wordmark">StreamHarbor <b>↓</b></span><span class="badge">iPhone 原型</span></header>
+    <header><span class="wordmark">StreamHarbor <b>↓</b></span></header>
     <h1>把视频带走。</h1><p class="intro">解析链接，下载到手机，再保存到文件或相册。</p>
-    <p class="prototype">三站真机验收中 · 兼容性尚未确认</p>
     <p v-if="!native" class="notice">当前是界面预览。解析和下载需要在 iPhone 安装包中使用。</p>
     <section class="panel">
       <label for="url">视频网页或媒体链接</label>
       <textarea id="url" v-model="url" rows="3" placeholder="粘贴网页、MP4 或 M3U8 链接" spellcheck="false" :disabled="busy" />
-      <div class="samples"><span>验收样本</span><button v-for="s in samples" :key="s.name" :disabled="busy" @click="url = s.url">{{ s.name }}</button></div>
       <div class="buttons"><button class="primary" :disabled="!native || busy || !url.trim()" @click="resolve(false)">{{ busy ? '正在识别…' : '解析链接' }}</button><button :disabled="!native || busy || !url.trim()" @click="resolve(true)">打开网页识别</button></div>
       <p class="hint">自动解析失败时，可打开网页手动播放，点击“完成识别”返回。</p>
     </section>

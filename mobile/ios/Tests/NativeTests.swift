@@ -4,6 +4,29 @@ import AVFoundation
 @testable import StreamHarbor
 
 final class NativeTests: XCTestCase {
+    func testLocalFragmentedMP4WithPlainNamesInAllOutputModes() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at:directory,withIntermediateDirectories:true)
+        defer { try? FileManager.default.removeItem(at:directory) }
+        let source = try fixtures
+        let playlist = try HLS.parse(String(contentsOf:source.appendingPathComponent("fmp4.m3u8"),encoding:.utf8),base:URL(string:"https://fixture.test/fmp4.m3u8")!)
+        XCTAssertEqual(playlist.parts.filter(\.isMap).count,1)
+        XCTAssertEqual(playlist.parts.filter { !$0.isMap }.count,2)
+        var entries: [(Part,String)] = []
+        for (index,part) in playlist.parts.enumerated() {
+            let name = "\(index).plain"
+            try FileManager.default.copyItem(at:source.appendingPathComponent(part.url.lastPathComponent),to:directory.appendingPathComponent(name))
+            entries.append((part,name))
+        }
+        let input = directory.appendingPathComponent("local.m3u8")
+        try HLS.localPlaylist(entries).write(to:input,atomically:true,encoding:.utf8)
+        for mode: OutputMode in [.mp4,.mkv,.transcode] {
+            let output = directory.appendingPathComponent("output-\(mode.nativeValue).\(mode.fileExtension)")
+            try NativeMedia.remux(video:input,audio:nil,output:output,mode:mode,deep:true)
+            XCTAssertEqual(NativeMedia.probe(output,video:true,audio:true,mode:mode == .transcode ? .mp4 : mode),1)
+            XCTAssertEqual(output.path.withCString { harbor_duration($0) },2,accuracy:0.15)
+        }
+    }
     func testPreflightRejectsMissingSegmentInsteadOfUnknownCodec() async throws {
         let url = URL(string:"https://fixture.test/missing.png?secret=hidden")!
         let context = WebContext(referer:url,userAgent:"test",cookies:[])
@@ -26,11 +49,11 @@ final class NativeTests: XCTestCase {
         try FileManager.default.createDirectory(at:directory,withIntermediateDirectories:true)
         defer { try? FileManager.default.removeItem(at:directory) }
         let source = try fixtures.appendingPathComponent("video.ts")
-        try FileManager.default.copyItem(at:source,to:directory.appendingPathComponent("a.ts"))
-        try FileManager.default.copyItem(at:source,to:directory.appendingPathComponent("b.ts"))
+        try FileManager.default.copyItem(at:source,to:directory.appendingPathComponent("a.plain"))
+        try FileManager.default.copyItem(at:source,to:directory.appendingPathComponent("b.plain"))
         let a = Part(url:source,duration:2)
         let b = Part(url:source,duration:2,discontinuity:true)
-        let epochs = HLS.localEpochs([(a,"a.ts"),(b,"b.ts")])
+        let epochs = HLS.localEpochs([(a,"a.plain"),(b,"b.plain")])
         var files: [(String,Double)] = []
         for (i,entries) in epochs.enumerated() {
             let name = "epoch-\(i).m3u8"
