@@ -47,7 +47,7 @@ public class HarborPlugin: CAPPlugin, CAPBridgedPlugin {
             guard let id = call.getString("id"), var candidate = self.candidates[id] else { throw HarborError.message("资源已失效，请重新识别") }
             let http = HTTP(candidate.context); defer { http.close() }
             let parts = try await http.prepare(candidate)
-            candidate.codec = await http.preflight(candidate,parts:parts)
+            candidate.codec = try await http.preflight(candidate,parts:parts)
             candidate.message = candidate.codec == "supported" ? "样本编码检查通过；下载完成后仍会检查完整文件" : candidate.codec == "unsupported" ? "编码不兼容，原型仅支持 H.264/AAC" : "无法预先确认编码，可以选择尝试下载"
             self.candidates[id] = candidate
             self.prepared[id] = (parts,Date())

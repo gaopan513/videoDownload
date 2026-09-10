@@ -2,6 +2,37 @@ import XCTest
 @testable import HarborCore
 
 final class HLSTests: XCTestCase {
+    func testDiscontinuitySurvivesPersistenceAndLocalPlaylist() throws {
+        let p = try HLS.parse("#EXTM3U\n#EXT-X-DISCONTINUITY-SEQUENCE:9\n#EXT-X-MEDIA-SEQUENCE:257\n#EXT-X-KEY:METHOD=AES-128,URI=\"key\"\n#EXTINF:3,\na.ts\n#EXT-X-DISCONTINUITY\n#EXTINF:3,\nb.ts\n#EXT-X-ENDLIST",base:base)
+        XCTAssertNil(p.parts[0].discontinuity); XCTAssertEqual(p.parts[1].discontinuity,true)
+        XCTAssertEqual(p.parts[1].encryption?.iv.suffix(2),Data([1,2]))
+        let restored = try JSONDecoder().decode([Part].self,from:JSONEncoder().encode(p.parts))
+        XCTAssertEqual(restored,p.parts)
+        let local = HLS.localPlaylist([(restored[0],"a.plain"),(restored[1],"b.plain")])
+        XCTAssertTrue(local.contains("a.plain\n#EXT-X-DISCONTINUITY\n#EXTINF:3.0,\nb.plain"))
+        XCTAssertFalse(local.contains("EXT-X-KEY"))
+        let epochs = HLS.localEpochs([(restored[0],"a.plain"),(restored[1],"b.plain")])
+        XCTAssertEqual(epochs.count,2); XCTAssertNil(epochs[1][0].0.discontinuity)
+    }
+    func testDiscontinuityReemitsInitializationMap() throws {
+        let p = try HLS.parse("#EXTM3U\n#EXT-X-MAP:URI=\"init.mp4\"\n#EXTINF:3,\na.m4s\n#EXT-X-DISCONTINUITY\n#EXTINF:3,\nb.m4s\n#EXT-X-ENDLIST",base:base)
+        XCTAssertEqual(p.parts.count,4)
+        XCTAssertTrue(p.parts[2].isMap); XCTAssertEqual(p.parts[2].discontinuity,true)
+        XCTAssertNil(p.parts[3].discontinuity)
+        let local = HLS.localPlaylist(p.parts.enumerated().map { ($0.element,"\($0.offset).plain") })
+        XCTAssertTrue(local.contains("#EXT-X-DISCONTINUITY\n#EXT-X-MAP:URI=\"2.plain\""))
+        let epochs = HLS.localEpochs(p.parts.enumerated().map { ($0.element,"\($0.offset).plain") })
+        XCTAssertEqual(epochs.map(\.count),[2,2]); XCTAssertTrue(epochs[1][0].0.isMap)
+    }
+    func testOldPartRecordWithoutDiscontinuityStillDecodes() throws {
+        let old = Data(#"{"url":"https://example.test/a.ts","duration":3,"isMap":false}"#.utf8)
+        XCTAssertNil(try JSONDecoder().decode(Part.self,from:old).discontinuity)
+    }
+    func testGapAndSessionKeyRemainExplicitFailures() {
+        for tag in ["#EXT-X-GAP", "#EXT-X-SESSION-KEY:METHOD=AES-128,URI=\"key\""] {
+            XCTAssertThrowsError(try HLS.parse("#EXTM3U\n\(tag)\n#EXTINF:3,\na.ts\n#EXT-X-ENDLIST",base:base))
+        }
+    }
     let base = URL(string:"https://example.test/video/index.m3u8")!
     func testVariantsAndAudio() throws {
         let p = try HLS.parse("#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"a\",NAME=\"中文,原声\",DEFAULT=YES,URI=\"audio.m3u8\"\n#EXT-X-STREAM-INF:BANDWIDTH=200,CODECS=\"avc1.640028,mp4a.40.2\",AUDIO=\"a\"\n720.m3u8",base:base)

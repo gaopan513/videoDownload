@@ -2,7 +2,15 @@ import Foundation
 
 enum HarborError: LocalizedError {
     case message(String)
-    var errorDescription: String? { if case .message(let text) = self { return text }; return nil }
+    case http(Int, String, String)
+    var errorDescription: String? {
+        switch self {
+        case .message(let text): return text
+        case .http(let status,let resource,let host):
+            let advice = status == 404 ? "服务器未找到此资源，请重新识别或切换播放线路" : "请重新打开网页识别后重试"
+            return "\(resource)请求失败（HTTP \(status)，\(host)）。\(advice)"
+        }
+    }
 }
 func webURL(_ value: String, relativeTo base: URL? = nil) throws -> URL {
     guard let u = URL(string: value, relativeTo: base)?.absoluteURL,
@@ -18,6 +26,8 @@ struct Part: Codable, Equatable {
     var encryption: Encryption?
     var duration: Double = 0
     var isMap = false
+    // Optional so task records written before 0.1.2 remain decodable.
+    var discontinuity: Bool? = nil
 }
 struct Variant { let url: URL; let quality: String; let codecs: String; let audioGroup: String? }
 struct AudioRendition { let group: String; let name: String; let url: URL; let isDefault: Bool }

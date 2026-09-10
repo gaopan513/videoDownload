@@ -166,7 +166,9 @@ import CryptoKit
         do {
             guard let response = downloadTask.response as? HTTPURLResponse else { throw HarborError.message("媒体响应无效") }
             guard (200...299).contains(response.statusCode) else {
-                throw HarborError.message([401,403,410].contains(response.statusCode) ? "链接或授权失效。请重新打开网页识别；无法确认同一资源时须重新下载" : "下载失败（HTTP \(response.statusCode)），可重试")
+                let part = jobs[j].parts[p]
+                let resource = jobs[j].candidate.kind == "mp4" ? "MP4" : part.source.isMap ? "HLS 初始化片段" : "HLS 分片 \(part.index + 1)"
+                throw HarborError.http(response.statusCode,resource,response.url?.host ?? part.source.url.host ?? "媒体服务器")
             }
             let size = try FileManager.default.attributesOfItem(atPath:location.path)[.size] as? NSNumber
             guard let bytes = size?.int64Value, bytes > 0 else { throw HarborError.message("服务器返回空文件") }
@@ -234,8 +236,7 @@ import CryptoKit
         for track in Set(job.parts.map(\.track)).sorted() {
             let parts = job.parts.filter { $0.track == track }.sorted { $0.index < $1.index }
             if job.candidate.kind == "mp4" { inputs.append(directory.appendingPathComponent(parts[0].file)); continue }
-            let maxDuration = Int(ceil(parts.map { $0.source.duration }.max() ?? 10))
-            var lines = ["#EXTM3U", "#EXT-X-VERSION:7", "#EXT-X-TARGETDURATION:\(max(1,maxDuration))", "#EXT-X-MEDIA-SEQUENCE:0"]
+            var entries: [(Part,String)] = []
             for part in parts {
                 let original = directory.appendingPathComponent(part.file)
                 guard let expected = part.sha256, try hash(original) == expected else { throw HarborError.message("分片校验失败，拒绝合并") }
@@ -245,12 +246,22 @@ import CryptoKit
                     let data = try NativeMedia.decrypt(Data(contentsOf:original,options:.mappedIfSafe),key:key,iv:encryption.iv)
                     try data.write(to:plain,options:.completeFileProtectionUntilFirstUserAuthentication)
                 } else { try FileManager.default.linkItem(at:original,to:plain) }
-                if part.source.isMap { lines.append("#EXT-X-MAP:URI=\"\(plain.lastPathComponent)\"") }
-                else { lines.append("#EXTINF:\(part.source.duration),"); lines.append(plain.lastPathComponent) }
+                entries.append((part.source,plain.lastPathComponent))
             }
-            lines.append("#EXT-X-ENDLIST")
-            let input = directory.appendingPathComponent("track-\(track).m3u8")
-            try lines.joined(separator:"\n").write(to:input,atomically:true,encoding:.utf8); inputs.append(input)
+            let epochs = HLS.localEpochs(entries)
+            var files: [(String,Double)] = []
+            for (epoch,items) in epochs.enumerated() {
+                let input = directory.appendingPathComponent("track-\(track)-epoch-\(epoch).m3u8")
+                try HLS.localPlaylist(items).write(to:input,atomically:true,encoding:.utf8)
+                files.append((input.lastPathComponent,items.reduce(0) { $0 + ($1.0.isMap ? 0 : $1.0.duration) }))
+            }
+            if files.count == 1 { inputs.append(directory.appendingPathComponent(files[0].0)) }
+            else {
+                guard files.allSatisfy({ $0.1 > 0 && $0.1.isFinite }) else { throw HarborError.message("不连续片段缺少有效时长，无法安全合并") }
+                let input = directory.appendingPathComponent("track-\(track).ffconcat")
+                try HLS.localConcat(files).write(to:input,atomically:true,encoding:.utf8)
+                inputs.append(input)
+            }
         }
         try NativeMedia.remux(video:inputs[0],audio:inputs.count > 1 ? inputs[1] : nil,output:temporary)
         guard !FileManager.default.fileExists(atPath:output.path) else { throw HarborError.message("输出文件已存在，未覆盖；请检查文件应用") }

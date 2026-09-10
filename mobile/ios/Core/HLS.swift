@@ -36,7 +36,7 @@ enum HLS {
         var result = Playlist(), pendingVariant: [String:String]?, sequence: UInt64 = 0
         var keyURL: URL?, explicitIV: String?, rangeText: String?, duration: Double = 0, generation = 0
         var previousRange: (URL, ByteRange)?, currentMap: Part?, emittedMap: Part?
-        var ended = false
+        var ended = false, discontinuity = false
         func parseRange(_ value: String, url: URL) throws -> ByteRange {
             let bits = value.split(separator:"@", omittingEmptySubsequences:false)
             guard bits.count <= 2, let length = Int64(bits[0]), length > 0 else { throw HarborError.message("无效的 HLS 字节范围") }
@@ -63,8 +63,12 @@ enum HLS {
                 else { guard let uri = a["URI"] else { throw HarborError.message("AES 密钥地址缺失") }; keyURL = try webURL(uri,relativeTo:base); explicitIV = a["IV"] }
                 continue
             }
-            if line.hasPrefix("#EXT-X-SESSION-KEY:") || line.hasPrefix("#EXT-X-GAP") || line.hasPrefix("#EXT-X-DISCONTINUITY") {
-                throw HarborError.message("原型暂不支持会话密钥、缺失分片或不连续时间轴")
+            if line.hasPrefix("#EXT-X-SESSION-KEY:") { throw HarborError.message("暂不支持 EXT-X-SESSION-KEY 会话密钥") }
+            if line == "#EXT-X-GAP" { throw HarborError.message("播放列表声明 EXT-X-GAP 缺失分片，无法下载完整视频") }
+            if line == "#EXT-X-DISCONTINUITY" { discontinuity = true; continue }
+            if line.hasPrefix("#EXT-X-DISCONTINUITY-SEQUENCE:") {
+                guard UInt64(line.dropFirst("#EXT-X-DISCONTINUITY-SEQUENCE:".count)) != nil else { throw HarborError.message("无效的不连续时间轴序号") }
+                continue
             }
             if line.hasPrefix("#EXT-X-MAP:") {
                 let a = try attributes(String(line.dropFirst(11)))
@@ -88,15 +92,51 @@ enum HLS {
             if line.hasPrefix("#") { continue }
             let u = try webURL(line,relativeTo:base)
             if let a = pendingVariant { result.variants.append(Variant(url:u,quality:a["RESOLUTION"] ?? a["BANDWIDTH"] ?? "源画质",codecs:a["CODECS"] ?? "",audioGroup:a["AUDIO"])); pendingVariant = nil; continue }
-            if let map = currentMap, map != emittedMap { result.parts.append(map); emittedMap = map }
+            if var map = currentMap, map != emittedMap || discontinuity {
+                emittedMap = map
+                map.discontinuity = discontinuity ? true : nil
+                result.parts.append(map); discontinuity = false
+            }
             let range = try rangeText.map { try parseRange($0,url:u) }
             if range == nil { previousRange = nil }
-            result.parts.append(Part(url:u,range:range,encryption:try keyURL.map { Encryption(url:$0,iv:try iv(explicitIV,sequence:sequence),generation:generation) },duration:duration))
+            result.parts.append(Part(url:u,range:range,encryption:try keyURL.map { Encryption(url:$0,iv:try iv(explicitIV,sequence:sequence),generation:generation) },duration:duration,discontinuity:discontinuity ? true : nil))
+            discontinuity = false
             guard sequence < UInt64.max, result.parts.count <= 20000 else { throw HarborError.message("播放列表过大") }
             sequence += 1; rangeText = nil; duration = 0
         }
         if result.variants.isEmpty && (!ended || result.parts.isEmpty) { throw HarborError.message("仅支持带 ENDLIST 的完整点播，不支持直播") }
         guard pendingVariant == nil else { throw HarborError.message("清晰度列表地址缺失") }
         return result
+    }
+    // Preserve timestamp reset boundaries when handing decrypted local media to FFmpeg.
+    static func localPlaylist(_ entries: [(Part,String)]) -> String {
+        let maximum = Int(ceil(entries.map { $0.0.duration }.max() ?? 10))
+        var lines = ["#EXTM3U", "#EXT-X-VERSION:7", "#EXT-X-TARGETDURATION:\(max(1,maximum))", "#EXT-X-MEDIA-SEQUENCE:0"]
+        for (part,file) in entries {
+            if part.discontinuity == true { lines.append("#EXT-X-DISCONTINUITY") }
+            if part.isMap { lines.append("#EXT-X-MAP:URI=\"\(file)\"") }
+            else { lines.append("#EXTINF:\(part.duration),"); lines.append(file) }
+        }
+        lines.append("#EXT-X-ENDLIST")
+        return lines.joined(separator:"\n")
+    }
+    static func localEpochs(_ entries: [(Part,String)]) -> [[(Part,String)]] {
+        var epochs: [[(Part,String)]] = [], current: [(Part,String)] = []
+        for (source,file) in entries {
+            if source.discontinuity == true, !current.isEmpty { epochs.append(current); current = [] }
+            var part = source; part.discontinuity = nil
+            current.append((part,file))
+        }
+        if !current.isEmpty { epochs.append(current) }
+        return epochs
+    }
+    static func localConcat(_ files: [(String,Double)]) -> String {
+        var lines = ["ffconcat version 1.0"]
+        for (file,duration) in files {
+            lines.append("file '\(file)'")
+            lines.append("duration \(duration)")
+            lines.append("option allowed_extensions ALL")
+        }
+        return lines.joined(separator:"\n") + "\n"
     }
 }

@@ -10,6 +10,9 @@ static int open_local(const char *path, AVFormatContext **ctx) {
     AVDictionary *options = NULL;
     av_dict_set(&options, "protocol_whitelist", "file", 0);
     av_dict_set(&options, "allowed_extensions", "ALL", 0);
+    // Generated ffconcat files pass local HLS options to their child demuxers.
+    // Protocols remain file-only; no network URLs are opened during remuxing.
+    av_dict_set(&options, "safe", "0", 0);
     // Never print media paths (which may include sensitive titles) into CI/device logs.
     av_log_set_level(AV_LOG_QUIET);
     int r = avformat_open_input(ctx, path, NULL, &options);

@@ -32,7 +32,7 @@ for SDK in iphoneos iphonesimulator; do
       --disable-debug --disable-asm --disable-network --disable-shared --enable-static --enable-pic \
       --disable-gpl --disable-nonfree --disable-avdevice --disable-avfilter --disable-swscale --disable-postproc \
       --enable-avformat --enable-avcodec --enable-avutil --enable-swresample \
-      --enable-demuxer=hls,mov,mpegts,aac --enable-muxer=mp4 \
+      --enable-demuxer=hls,mov,mpegts,aac,concat --enable-muxer=mp4 \
       --enable-parser=h264,aac,hevc,mpeg4video --enable-decoder=h264,aac,mpeg4,hevc \
       --enable-bsf=aac_adtstoasc,extract_extradata,h264_mp4toannexb --enable-protocol=file \
       > configure-output.txt
