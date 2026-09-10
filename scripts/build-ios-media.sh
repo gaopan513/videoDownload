@@ -46,11 +46,15 @@ needs_exe_wrapper = true
 c_args = ['-target', '$TARGET', '-isysroot', '$SDK_PATH', '-fPIC']
 c_link_args = ['-target', '$TARGET', '-isysroot', '$SDK_PATH']
 EOF
-  MESON_SETUP=()
-  if [ -f "$PREFIX/dav1d-build/meson-private/coredata.dat" ]; then MESON_SETUP+=(--reconfigure); fi
-  meson setup "${MESON_SETUP[@]}" "$PREFIX/dav1d-build" "$BASE/source/dav1d-$DAV1D_VERSION" \
-    --cross-file "$PREFIX/dav1d-cross.ini" --prefix "$PREFIX" --libdir lib \
-    --buildtype release -Ddefault_library=static -Denable_tools=false -Denable_tests=false -Denable_asm=false
+  if [ -f "$PREFIX/dav1d-build/meson-private/coredata.dat" ]; then
+    meson setup --reconfigure "$PREFIX/dav1d-build" "$BASE/source/dav1d-$DAV1D_VERSION" \
+      --cross-file "$PREFIX/dav1d-cross.ini" --prefix "$PREFIX" --libdir lib \
+      --buildtype release -Ddefault_library=static -Denable_tools=false -Denable_tests=false -Denable_asm=false
+  else
+    meson setup "$PREFIX/dav1d-build" "$BASE/source/dav1d-$DAV1D_VERSION" \
+      --cross-file "$PREFIX/dav1d-cross.ini" --prefix "$PREFIX" --libdir lib \
+      --buildtype release -Ddefault_library=static -Denable_tools=false -Denable_tests=false -Denable_asm=false
+  fi
   meson compile -C "$PREFIX/dav1d-build"
   meson install -C "$PREFIX/dav1d-build"
   (
@@ -81,3 +85,4 @@ cp "$BASE/source/dav1d-$DAV1D_VERSION/COPYING" "$BASE/dav1d-LICENSE.txt"
 printf 'FFmpeg %s\nSource SHA256: %s\n' "$VERSION" "$SHA" > "$BASE/build-info.txt"
 printf 'dav1d %s\nSource SHA256: %s\nH.264 encoder: Apple VideoToolbox; audio encoder: FFmpeg AAC\n' "$DAV1D_VERSION" "$DAV1D_SHA" >> "$BASE/build-info.txt"
 xcodebuild -version >> "$BASE/build-info.txt"
+
