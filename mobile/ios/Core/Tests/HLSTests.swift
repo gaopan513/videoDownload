@@ -2,6 +2,24 @@ import XCTest
 @testable import HarborCore
 
 final class HLSTests: XCTestCase {
+    func testOutputModeMigrationAndRetryRollback() throws {
+        let u = URL(string:"https://example.test/video.mp4")!
+        let c = MediaCandidate(title:"retry",url:u,audioURL:nil,kind:"mp4",quality:"",context:WebContext(referer:u,userAgent:"test",cookies:[]))
+        var job = DownloadJob(candidate:c,parts:[DownloadPart(source:Part(url:u,duration:2),track:0,index:0)])
+        job.state = "failed"; job.parts[0].finished = true; job.parts[0].sha256 = "retained"
+        let oldData = try JSONEncoder().encode(job)
+        XCTAssertFalse(String(decoding:oldData,as:UTF8.self).contains("outputMode"))
+        XCTAssertEqual(try JSONDecoder().decode(DownloadJob.self,from:oldData).mode,.mp4)
+        var jobs = [job]
+        XCTAssertThrowsError(try JobRetry.queue(job.id,mode:.mkv,jobs:&jobs,save: { _ in throw HarborError.message("disk full") }))
+        XCTAssertEqual(jobs[0].state,"failed"); XCTAssertEqual(jobs[0].mode,.mp4)
+        var persisted = Data()
+        try JobRetry.queue(job.id,mode:.mkv,jobs:&jobs,save: { persisted = try JSONEncoder().encode($0) })
+        let restored = try JSONDecoder().decode([DownloadJob].self,from:persisted)
+        XCTAssertEqual(restored[0].mode,.mkv); XCTAssertEqual(restored[0].state,"queued")
+        XCTAssertTrue(restored[0].parts[0].finished); XCTAssertEqual(restored[0].parts[0].sha256,"retained")
+        XCTAssertThrowsError(try OutputMode.parse("invalid"))
+    }
     func testDiscontinuitySurvivesPersistenceAndLocalPlaylist() throws {
         let p = try HLS.parse("#EXTM3U\n#EXT-X-DISCONTINUITY-SEQUENCE:9\n#EXT-X-MEDIA-SEQUENCE:257\n#EXT-X-KEY:METHOD=AES-128,URI=\"key\"\n#EXTINF:3,\na.ts\n#EXT-X-DISCONTINUITY\n#EXTINF:3,\nb.ts\n#EXT-X-ENDLIST",base:base)
         XCTAssertNil(p.parts[0].discontinuity); XCTAssertEqual(p.parts[1].discontinuity,true)

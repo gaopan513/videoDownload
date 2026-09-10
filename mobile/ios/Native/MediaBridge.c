@@ -4,6 +4,7 @@
 #include <libavcodec/avcodec.h>
 #include <libavutil/mathematics.h>
 #include <string.h>
+#include <stdio.h>
 
 static int open_local(const char *path, AVFormatContext **ctx) {
     if (!path || path[0] != '/') return AVERROR(EINVAL);
@@ -20,18 +21,49 @@ static int open_local(const char *path, AVFormatContext **ctx) {
     if (r < 0) return r;
     return avformat_find_stream_info(*ctx, NULL);
 }
-int harbor_probe(const char *path, int require_video, int require_audio) {
+static int mp4_codec(enum AVCodecID codec, enum AVMediaType type) {
+    if (type==AVMEDIA_TYPE_VIDEO) return codec==AV_CODEC_ID_H264 || codec==AV_CODEC_ID_HEVC || codec==AV_CODEC_ID_AV1 || codec==AV_CODEC_ID_MPEG4;
+    if (type==AVMEDIA_TYPE_AUDIO) return codec==AV_CODEC_ID_AAC || codec==AV_CODEC_ID_MP3 || codec==AV_CODEC_ID_AC3 || codec==AV_CODEC_ID_EAC3 || codec==AV_CODEC_ID_ALAC;
+    return 1;
+}
+int harbor_probe_mode(const char *path, int require_video, int require_audio, int mode) {
+    if (mode<0 || mode>2) return -2;
     AVFormatContext *ctx = NULL;
     int result = 0, video = 0, audio = 0;
     if (open_local(path, &ctx) < 0) goto end;
     for (unsigned i=0; i<ctx->nb_streams; i++) {
         AVCodecParameters *p = ctx->streams[i]->codecpar;
-        if (p->codec_type == AVMEDIA_TYPE_VIDEO) { video++; if (p->codec_id != AV_CODEC_ID_H264) { result=-2; goto end; } }
-        if (p->codec_type == AVMEDIA_TYPE_AUDIO) { audio++; if (p->codec_id != AV_CODEC_ID_AAC) { result=-2; goto end; } }
+        if (p->codec_type == AVMEDIA_TYPE_VIDEO) video++;
+        else if (p->codec_type == AVMEDIA_TYPE_AUDIO) audio++;
+        else continue;
+        if ((mode==0 && !mp4_codec(p->codec_id,p->codec_type)) ||
+            (mode==1 && avformat_query_codec(av_guess_format("matroska",NULL,NULL),p->codec_id,FF_COMPLIANCE_NORMAL)==0) ||
+            (mode==2 && !avcodec_find_decoder(p->codec_id))) { result=-2; goto end; }
     }
     if ((!require_video || video) && (!require_audio || audio) && (video || audio)) result=1;
 end:
     avformat_close_input(&ctx); return result;
+}
+int harbor_probe(const char *path, int require_video, int require_audio) { return harbor_probe_mode(path,require_video,require_audio,0); }
+double harbor_duration(const char *path) {
+    AVFormatContext *ctx=NULL;
+    double duration=0;
+    if (open_local(path,&ctx)>=0 && ctx->duration!=AV_NOPTS_VALUE && ctx->duration>0) duration=(double)ctx->duration/AV_TIME_BASE;
+    avformat_close_input(&ctx);
+    return duration;
+}
+void harbor_codecs(const char *path, char *text, size_t capacity) {
+    if (!text || !capacity) return;
+    text[0]=0; AVFormatContext *ctx=NULL; size_t used=0;
+    if (open_local(path,&ctx)<0) { avformat_close_input(&ctx); return; }
+    for (unsigned i=0;i<ctx->nb_streams && used<capacity-1;i++) {
+        AVCodecParameters *p=ctx->streams[i]->codecpar;
+        if (p->codec_type!=AVMEDIA_TYPE_VIDEO && p->codec_type!=AVMEDIA_TYPE_AUDIO) continue;
+        int n=snprintf(text+used,capacity-used,"%s%s: %s",used?"; ":"",p->codec_type==AVMEDIA_TYPE_VIDEO?"video":"audio",avcodec_get_name(p->codec_id));
+        if (n<0 || (size_t)n>=capacity-used) break;
+        used+=(size_t)n;
+    }
+    avformat_close_input(&ctx);
 }
 static int next_packet(AVFormatContext *ctx, AVPacket *packet, int *map) {
     int r;
@@ -41,7 +73,7 @@ static int next_packet(AVFormatContext *ctx, AVPacket *packet, int *map) {
     }
     return r == AVERROR_EOF ? 0 : -1;
 }
-int harbor_remux(const char *video_path, const char *audio_path, const char *output_path) {
+static int remux_files(const char *video_path, const char *audio_path, const char *output_path, int mode) {
     AVFormatContext *in[2]={NULL,NULL}, *out=NULL;
     AVPacket *packets[2]={NULL,NULL};
     int *maps[2]={NULL,NULL}, ready[2]={0,0};
@@ -50,7 +82,7 @@ int harbor_remux(const char *video_path, const char *audio_path, const char *out
     if (!output_path || output_path[0] != '/') goto cleanup;
     if (open_local(video_path,&in[0]) < 0) goto cleanup;
     if (count==2 && open_local(audio_path,&in[1]) < 0) goto cleanup;
-    if (avformat_alloc_output_context2(&out,NULL,"mp4",output_path) < 0) goto cleanup;
+    if (avformat_alloc_output_context2(&out,NULL,mode==1?"matroska":"mp4",output_path) < 0) goto cleanup;
     for (int k=0;k<count;k++) {
         maps[k]=av_malloc_array(in[k]->nb_streams,sizeof(int));
         if (!maps[k]) goto cleanup;
@@ -58,12 +90,14 @@ int harbor_remux(const char *video_path, const char *audio_path, const char *out
             maps[k][i]=-1;
             AVCodecParameters *p=in[k]->streams[i]->codecpar;
             int take_video=k==0 && p->codec_type==AVMEDIA_TYPE_VIDEO && !has_video;
-            int take_audio=k==(count-1) && p->codec_type==AVMEDIA_TYPE_AUDIO && !has_audio;
+            int take_audio=k==(count-1) && p->codec_type==AVMEDIA_TYPE_AUDIO && (count==1 || !has_audio);
             if (!take_video && !take_audio) continue;
-            if ((take_video && p->codec_id!=AV_CODEC_ID_H264) || (take_audio && p->codec_id!=AV_CODEC_ID_AAC)) { result=-2; goto cleanup; }
+            if (mode==0 && !mp4_codec(p->codec_id,p->codec_type)) { result=-2; goto cleanup; }
             AVStream *s=avformat_new_stream(out,NULL);
             if (!s || avcodec_parameters_copy(s->codecpar,p)<0) goto cleanup;
             s->codecpar->codec_tag=0; s->time_base=in[k]->streams[i]->time_base;
+            if (mode==0 && p->codec_id==AV_CODEC_ID_HEVC) s->codecpar->codec_tag=MKTAG('h','v','c','1');
+            av_dict_copy(&s->metadata,in[k]->streams[i]->metadata,0);
             maps[k][i]=s->index; has_video |= take_video; has_audio |= take_audio;
         }
         packets[k]=av_packet_alloc(); if (!packets[k]) goto cleanup;
@@ -71,7 +105,7 @@ int harbor_remux(const char *video_path, const char *audio_path, const char *out
     if (!has_video || (count==2 && !has_audio)) goto cleanup;
     if (avio_open(&out->pb,output_path,AVIO_FLAG_WRITE)<0) goto cleanup;
     AVDictionary *options=NULL;
-    av_dict_set(&options,"movflags","+faststart",0);
+    if (mode!=1) av_dict_set(&options,"movflags","+faststart",0);
     int header=avformat_write_header(out,&options); av_dict_free(&options);
     if (header<0) goto cleanup;
     for (int k=0;k<count;k++) ready[k]=next_packet(in[k],packets[k],maps[k]);
@@ -103,6 +137,12 @@ cleanup:
     if (out) { if (out->pb) avio_closep(&out->pb); avformat_free_context(out); }
     return result;
 }
+int harbor_transcode(const char *, const char *, const char *);
+int harbor_convert(const char *video_path, const char *audio_path, const char *output_path, int mode) {
+    if (mode<0 || mode>2) return AVERROR(EINVAL);
+    return mode==2 ? harbor_transcode(video_path,audio_path,output_path) : remux_files(video_path,audio_path,output_path,mode);
+}
+int harbor_remux(const char *video_path, const char *audio_path, const char *output_path) { return harbor_convert(video_path,audio_path,output_path,0); }
 static int drain(AVCodecContext *decoder, AVFrame *frame, int *frames) {
     int r;
     while ((r=avcodec_receive_frame(decoder,frame)) >= 0) { (*frames)++; av_frame_unref(frame); }
@@ -117,7 +157,7 @@ int harbor_verify(const char *path) {
     for (unsigned i=0;i<input->nb_streams;i++) {
         AVCodecParameters *p=input->streams[i]->codecpar;
         if (p->codec_type!=AVMEDIA_TYPE_VIDEO && p->codec_type!=AVMEDIA_TYPE_AUDIO) continue;
-        const AVCodec *codec=avcodec_find_decoder(p->codec_id); if (!codec) goto finish;
+        const AVCodec *codec=p->codec_id==AV_CODEC_ID_AV1 ? avcodec_find_decoder_by_name("libdav1d") : avcodec_find_decoder(p->codec_id); if (!codec) goto finish;
         decoders[i]=avcodec_alloc_context3(codec);
         if (!decoders[i] || avcodec_parameters_to_context(decoders[i],p)<0) goto finish;
         decoders[i]->err_recognition=AV_EF_EXPLODE;

@@ -88,8 +88,53 @@ final class NativeTests: XCTestCase {
         try NativeMedia.remux(video:directory.appendingPathComponent("video.ts"),audio:directory.appendingPathComponent("audio.aac"),output:out)
         XCTAssertEqual(NativeMedia.probe(out,video:true,audio:true),1)
     }
-    func testRejectNonH264() throws {
-        XCTAssertEqual(NativeMedia.probe(try fixtures.appendingPathComponent("unsupported.mp4"),video:true,audio:false),-2)
+    func testDesktopMP4CodecMatrix() throws {
+        for name in ["h264-aac.mp4","hevc-ac3.mp4","av1-eac3.mp4","mpeg4-mp3.mp4","h264-alac.mp4"] {
+            let input = try fixtures.appendingPathComponent(name)
+            let out = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mp4")
+            defer { try? FileManager.default.removeItem(at:out) }
+            XCTAssertEqual(NativeMedia.probe(input,video:true,audio:true),1,name)
+            try NativeMedia.remux(video:input,audio:nil,output:out,deep:true)
+            XCTAssertEqual(NativeMedia.codecs(out),NativeMedia.codecs(input),name)
+            XCTAssertEqual(out.path.withCString { harbor_duration($0) },2,accuracy:0.15,name)
+        }
+    }
+    func testMKVPreservesVP9OpusAndMP4RejectsIt() throws {
+        let input = try fixtures.appendingPathComponent("vp9-opus.mkv")
+        let out = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mkv")
+        defer { try? FileManager.default.removeItem(at:out) }
+        XCTAssertEqual(NativeMedia.probe(input,video:true,audio:true),-2)
+        XCTAssertEqual(NativeMedia.probe(input,video:true,audio:true,mode:.mkv),1)
+        try NativeMedia.remux(video:input,audio:nil,output:out,mode:.mkv,deep:true)
+        XCTAssertEqual(NativeMedia.codecs(out),"video: vp9; audio: opus")
+    }
+    func testTranscodeVP9OpusToH264AAC() async throws {
+        let input = try fixtures.appendingPathComponent("vp9-opus.mkv")
+        let out = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mp4")
+        defer { try? FileManager.default.removeItem(at:out) }
+        try NativeMedia.remux(video:input,audio:nil,output:out,mode:.transcode,deep:true)
+        XCTAssertEqual(NativeMedia.codecs(out),"video: h264; audio: aac")
+        let asset = AVURLAsset(url:out)
+        let tracks = try await asset.load(.tracks)
+        XCTAssertEqual(tracks.count,2)
+        var starts: [Double] = []
+        for track in tracks {
+            let time = try await track.load(.timeRange)
+            starts.append(CMTimeGetSeconds(time.start))
+            XCTAssertEqual(CMTimeGetSeconds(time.duration),2,accuracy:0.15)
+        }
+        XCTAssertLessThan(abs(starts[0] - starts[1]),0.1)
+    }
+    func testMPEG4IsNoLongerRejected() throws {
+        XCTAssertEqual(NativeMedia.probe(try fixtures.appendingPathComponent("unsupported.mp4"),video:true,audio:false),1)
+    }
+    func testTranscodeTransportStreamWithSeparateAudio() throws {
+        let directory = try fixtures
+        let out = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mp4")
+        defer { try? FileManager.default.removeItem(at:out) }
+        try NativeMedia.remux(video:directory.appendingPathComponent("video.ts"),audio:directory.appendingPathComponent("audio.aac"),output:out,mode:.transcode,deep:true)
+        XCTAssertEqual(NativeMedia.codecs(out),"video: h264; audio: aac")
+        XCTAssertEqual(out.path.withCString { harbor_duration($0) },2,accuracy:0.15)
     }
     func testEncryptedStateRoundTrip() throws {
         let store = try SecureStore()

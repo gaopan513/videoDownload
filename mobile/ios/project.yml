@@ -34,7 +34,7 @@ targets:
         SWIFT_OBJC_BRIDGING_HEADER: Native/MediaBridge.h
         HEADER_SEARCH_PATHS: '$(inherited) $(PROJECT_DIR)/../../.tools/ios-media/include'
         LIBRARY_SEARCH_PATHS: '$(inherited) $(PROJECT_DIR)/../../.tools/ios-media/$(PLATFORM_NAME)/lib'
-        OTHER_LDFLAGS: '$(inherited) -lavformat -lavcodec -lavutil -lswresample -lz -lbz2 -liconv'
+        OTHER_LDFLAGS: '$(inherited) -lavformat -lavcodec -lavfilter -lavutil -lswresample -lswscale -ldav1d -lz -lbz2 -liconv'
         GENERATE_INFOPLIST_FILE: NO
     dependencies:
       - package: Capacitor
@@ -43,6 +43,8 @@ targets:
         product: Cordova
       - sdk: AVFoundation.framework
       - sdk: VideoToolbox.framework
+      - sdk: CoreMedia.framework
+      - sdk: CoreVideo.framework
       - sdk: AudioToolbox.framework
       - sdk: Security.framework
       - sdk: Photos.framework

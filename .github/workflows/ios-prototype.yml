@@ -31,6 +31,13 @@ jobs:
           npm ci --prefix mobile
           npm run build --prefix mobile
           node --test scripts/test-ios-resolver.mjs
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          fixtures = Path('mobile/ios/Tests/Fixtures')
+          for name, expected in json.loads((fixtures / 'sha256.json').read_text()).items():
+              assert hashlib.sha256((fixtures / name).read_bytes()).hexdigest() == expected, name
+          PY
       - name: Test HLS parser and cookie boundaries
         run: swift test --package-path mobile/ios/Core
       - uses: actions/cache@v4
@@ -64,4 +71,5 @@ jobs:
             .tools/ios-build/*.log
             .tools/ios-build/*.xcresult
             .tools/ios-media/*/build/*-output.txt
+            .tools/ios-media/*/dav1d-build/meson-logs/*.txt
           retention-days: 7

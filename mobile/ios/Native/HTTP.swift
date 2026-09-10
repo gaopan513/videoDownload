@@ -1,5 +1,7 @@
 import Foundation
 
+struct MediaCheck { let codec: String; let message: String }
+
 final class HTTP: NSObject, URLSessionTaskDelegate {
     let context: WebContext
     init(_ context: WebContext) { self.context = context }
@@ -65,11 +67,12 @@ final class HTTP: NSObject, URLSessionTaskDelegate {
         }
         return output
     }
-    func preflight(_ candidate: MediaCandidate, parts: [DownloadPart]) async throws -> String {
+    func preflight(_ candidate: MediaCandidate, parts: [DownloadPart], mode: OutputMode = .mp4) async throws -> MediaCheck {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at:directory) }
         do {
             try FileManager.default.createDirectory(at:directory,withIntermediateDirectories:true)
+            var descriptions: [String] = []
             for track in Set(parts.map(\.track)).sorted() {
                 let items = parts.filter { $0.track == track }
                 var sample = Data()
@@ -82,14 +85,16 @@ final class HTTP: NSObject, URLSessionTaskDelegate {
                 }
                 let path = directory.appendingPathComponent("sample-\(track)")
                 try sample.write(to:path)
-                let result = NativeMedia.probe(path,video:track == 0,audio:track == 1)
-                if result == -2 { return "unsupported" }
-                if result != 1 { return "unknown" }
+                let result = NativeMedia.probe(path,video:track == 0,audio:track == 1,mode:mode)
+                let detail = NativeMedia.codecs(path)
+                if !detail.isEmpty { descriptions.append(detail) }
+                if result == -2 { return MediaCheck(codec:"unsupported",message:descriptions.joined(separator:"；") + "。不适合\(mode.label)，请选择无损 MKV 或转码 MP4") }
+                if result != 1 { return MediaCheck(codec:"unknown",message:"样本不足以确认编码，可选择尝试；下载后会再次检查") }
             }
-            return "supported"
+            return MediaCheck(codec:"supported",message:descriptions.joined(separator:"；") + "。可使用\(mode.label)；能否存入相册由导出时检查")
         } catch let error as HarborError {
             if case .http = error { throw error }
-            return "unknown"
-        } catch { return "unknown" }
+            return MediaCheck(codec:"unknown",message:"样本不足以确认编码，可选择尝试")
+        } catch { return MediaCheck(codec:"unknown",message:"样本检查未完成，可选择尝试") }
     }
 }

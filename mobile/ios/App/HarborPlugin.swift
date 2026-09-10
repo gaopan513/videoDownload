@@ -9,7 +9,7 @@ public class HarborPlugin: CAPPlugin, CAPBridgedPlugin {
     public let pluginMethods: [CAPPluginMethod] = ["snapshot","resolve","inspect","add","control","deleteRecord","exportFile"].map { CAPPluginMethod(name:$0,returnType:CAPPluginReturnPromise) }
     private var resolver: Resolver?
     private var candidates: [String:MediaCandidate] = [:]
-    private var prepared: [String:([DownloadPart],Date)] = [:]
+    private var prepared: [String:([DownloadPart],Date,OutputMode)] = [:]
     private var working = false
     private func run(_ call: CAPPluginCall, _ operation: @escaping @MainActor (DownloadEngine) async throws -> JSObject) {
         Task { @MainActor in
@@ -47,25 +47,28 @@ public class HarborPlugin: CAPPlugin, CAPBridgedPlugin {
             guard let id = call.getString("id"), var candidate = self.candidates[id] else { throw HarborError.message("资源已失效，请重新识别") }
             let http = HTTP(candidate.context); defer { http.close() }
             let parts = try await http.prepare(candidate)
-            candidate.codec = try await http.preflight(candidate,parts:parts)
-            candidate.message = candidate.codec == "supported" ? "样本编码检查通过；下载完成后仍会检查完整文件" : candidate.codec == "unsupported" ? "编码不兼容，原型仅支持 H.264/AAC" : "无法预先确认编码，可以选择尝试下载"
+            let mode = try OutputMode.parse(call.getString("mode"))
+            let check = try await http.preflight(candidate,parts:parts,mode:mode)
+            candidate.codec = check.codec; candidate.message = check.message
             self.candidates[id] = candidate
-            self.prepared[id] = (parts,Date())
+            self.prepared[id] = (parts,Date(),mode)
             return ["codec":candidate.codec,"message":candidate.message]
         }
     }
     @objc func add(_ call: CAPPluginCall) {
         run(call) { engine in
-            guard let id = call.getString("id"), let candidate = self.candidates[id], let (parts,date) = self.prepared[id], Date().timeIntervalSince(date) < 300 else { throw HarborError.message("请重新进行编码检查后下载") }
+            let mode = try OutputMode.parse(call.getString("mode"))
+            guard let id = call.getString("id"), let candidate = self.candidates[id], let (parts,date,checkedMode) = self.prepared[id], checkedMode == mode, Date().timeIntervalSince(date) < 300 else { throw HarborError.message("输出方式已改变或资源失效，请重新检查后下载") }
             guard candidate.codec != "unsupported", candidate.codec == "supported" || call.getBool("allowUnknown") == true else { throw HarborError.message("编码未确认，需要先选择是否继续") }
-            try engine.add(candidate,parts:parts); self.prepared.removeValue(forKey:id)
+            try engine.add(candidate,parts:parts,mode:mode,deep:call.getBool("deep") ?? false); self.prepared.removeValue(forKey:id)
             return [:]
         }
     }
     @objc func control(_ call: CAPPluginCall) {
         run(call) { engine in
             guard let id = call.getString("id"), let action = call.getString("action") else { throw HarborError.message("操作参数缺失") }
-            try await engine.control(id,action:action); return [:]
+            let mode = try call.getString("mode").map { try OutputMode.parse($0) }
+            try await engine.control(id,action:action,mode:mode); return [:]
         }
     }
     @objc func exportFile(_ call: CAPPluginCall) {
@@ -73,9 +76,9 @@ public class HarborPlugin: CAPPlugin, CAPBridgedPlugin {
             guard let id = call.getString("id"), let destination = call.getString("destination") else { throw HarborError.message("导出参数缺失") }
             let url = try engine.output(id)
             if destination == "photos" {
+                guard url.pathExtension.lowercased() == "mp4", UIVideoAtPathIsCompatibleWithSavedPhotosAlbum(url.path) else { throw HarborError.message("此文件不适合保存到相册，仍可分享或存储到文件；可选择转码 MP4 获得更广播放兼容性") }
                 let permission = await PHPhotoLibrary.requestAuthorization(for:.addOnly)
                 guard permission == .authorized || permission == .limited else { throw HarborError.message("未获得相册写入权限，仍可通过分享保存到文件") }
-                guard UIVideoAtPathIsCompatibleWithSavedPhotosAlbum(url.path) else { throw HarborError.message("此 MP4 无法保存到相册，请保存到文件") }
                 try await PHPhotoLibrary.shared().performChanges { PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL:url) }
             } else if destination == "share" {
                 guard let presenter = self.bridge?.viewController, presenter.presentedViewController == nil else { throw HarborError.message("请先关闭当前窗口") }

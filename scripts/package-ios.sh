@@ -30,6 +30,7 @@ cp "$ROOT/.tools/ios-media/build-info.txt" "$ROOT/release/ios/build-info.txt"
 # Accompany static LGPL libraries with source, configuration and relinkable app objects.
 mkdir -p "$BUILD/relink"
 cp "$ROOT/.tools/ios-media/source/ffmpeg-7.1.1.tar.xz" "$BUILD/relink/"
+cp "$ROOT/.tools/ios-media/source/dav1d-1.5.1.tar.xz" "$ROOT/.tools/ios-media/dav1d-LICENSE.txt" "$BUILD/relink/"
 cp "$ROOT/scripts/build-ios-media.sh" "$ROOT/mobile/THIRD_PARTY.md" "$ROOT/.tools/ios-media/FFmpeg-LICENSE.txt" "$BUILD/relink/"
 ditto "$BUILD/device/Build/Intermediates.noindex/ArchiveIntermediates/StreamHarbor" "$BUILD/relink/ArchiveIntermediates"
 ditto -c -k --keepParent "$BUILD/relink" "$ROOT/release/ios/StreamHarbor-relink-materials.zip"

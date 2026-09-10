@@ -1,5 +1,8 @@
 # iOS 原型依赖
 
+- dav1d 1.5.1（AV1 解码）：BSD-2-Clause，源码 https://download.videolan.org/pub/videolan/dav1d/1.5.1/dav1d-1.5.1.tar.xz ，SHA256 `401813f1f89fa8fd4295805aa5284d9aed9bc7fc1fdbe554af4292f64cbabe21`。源码与许可证随重链接材料提供。
+- 构建工具：Meson 1.7.0、Ninja 1.11.1.3；H.264 编码使用系统 VideoToolbox，AAC 编码使用 FFmpeg。与桌面 libx264 的编码速度和画质参数不同，不承诺逐字节一致。
+
 - Vue 3.5.42、Capacitor 8.0.0、XcodeGen 2.44.1：MIT，保留各项目许可证；Node 工具链的精确依赖见 package-lock.json。
 - FFmpeg 7.1.1：https://ffmpeg.org/releases/ffmpeg-7.1.1.tar.xz
   SHA-256：`733984395e0dbbe5c046abda2dc49a5544e7e0e1e2366bba849222ae9e3a03b1`。

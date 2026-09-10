@@ -88,6 +88,16 @@ struct DownloadPart: Codable {
     var sha256: String?
     var file: String { "\(track)-\(index).part" }
 }
+enum OutputMode: String, Codable, CaseIterable {
+    case mp4, mkv, transcode
+    var fileExtension: String { self == .mkv ? "mkv" : "mp4" }
+    var nativeValue: Int32 { self == .mp4 ? 0 : self == .mkv ? 1 : 2 }
+    var label: String { self == .mp4 ? "无损 MP4" : self == .mkv ? "无损 MKV" : "转码 MP4" }
+    static func parse(_ value: String?) throws -> OutputMode {
+        guard let mode = OutputMode(rawValue:value ?? "mp4") else { throw HarborError.message("不支持的输出方式") }
+        return mode
+    }
+}
 struct DownloadJob: Codable {
     var id = UUID().uuidString
     var candidate: MediaCandidate
@@ -95,9 +105,25 @@ struct DownloadJob: Codable {
     var state = "queued"
     var message = "等待下载"
     var output: String?
+    var outputMode: OutputMode?
+    var deepVerify: Bool?
+    var mode: OutputMode { outputMode ?? .mp4 }
     var publicValue: [String: Any] {
         ["id":id, "title":candidate.title, "state":state,
-         "done":state == "complete" ? 1 : parts.filter(\.finished).count, "total":state == "complete" ? 1 : parts.count, "message":message]
+         "done":state == "complete" ? 1 : parts.filter(\.finished).count, "total":state == "complete" ? 1 : parts.count, "message":message,
+         "mode":mode.rawValue,"format":mode.fileExtension]
+    }
+}
+
+enum JobRetry {
+    static func queue(_ id: String, mode: OutputMode?, jobs: inout [DownloadJob], save: ([DownloadJob]) throws -> Void) throws {
+        guard let index = jobs.firstIndex(where: { $0.id == id }), ["paused","failed"].contains(jobs[index].state) else { throw HarborError.message("当前任务不能继续") }
+        var updated = jobs
+        for p in updated[index].parts.indices { updated[index].parts[p].retries = 0 }
+        if let mode { updated[index].outputMode = mode }
+        updated[index].state = "queued"; updated[index].message = "等待继续"
+        try save(updated)
+        jobs = updated
     }
 }
 

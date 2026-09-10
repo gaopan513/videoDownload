@@ -62,17 +62,18 @@ import CryptoKit
         }
         ready = true; persist(); schedule()
     }
-    func add(_ candidate: MediaCandidate, parts: [DownloadPart]) throws {
+    func add(_ candidate: MediaCandidate, parts: [DownloadPart], mode: OutputMode = .mp4, deep: Bool = false) throws {
         guard storageError == nil else { throw HarborError.message(storageError!) }
         guard !parts.isEmpty else { throw HarborError.message("没有可下载的媒体分片") }
-        let job = DownloadJob(candidate:candidate,parts:parts)
+        var job = DownloadJob(candidate:candidate,parts:parts)
+        job.outputMode = mode; job.deepVerify = deep
         _ = try store.directory(job.id)
         jobs.append(job)
         do { try store.save(jobs) } catch { jobs.removeLast(); throw HarborError.message("无法保存任务，下载未开始") }
         hydrateCookies()
         publish(); schedule()
     }
-    func control(_ id: String, action: String) async throws {
+    func control(_ id: String, action: String, mode: OutputMode? = nil) async throws {
         guard var j = jobs.firstIndex(where: { $0.id == id }) else { throw HarborError.message("任务不存在") }
         switch action {
         case "pause":
@@ -89,8 +90,8 @@ import CryptoKit
                 guard jobs[j].state == old.state else { throw HarborError.message("任务状态已改变，请重试") }
                 guard fresh.count == old.parts.count, zip(fresh,old.parts).allSatisfy({ pair in pair.0.source == pair.1.source && pair.0.key == pair.1.key }) else { throw HarborError.message("资源已变化，无法安全续传。旧数据保留，请取消后重新解析下载") }
             }
-            for p in jobs[j].parts.indices { jobs[j].parts[p].retries = 0 }
-            jobs[j].state = "queued"; jobs[j].message = "等待继续"
+            try JobRetry.queue(id,mode:mode,jobs:&jobs,save:store.save)
+            publish(); schedule(); return
         case "cancel":
             guard !["complete","processing","cancelled"].contains(jobs[j].state) else { throw HarborError.message("此阶段不能取消") }
             let names = transfers.keys.filter { $0.hasPrefix(id + ":") }
@@ -104,7 +105,7 @@ import CryptoKit
     }
     func output(_ id: String) throws -> URL {
         guard let job = jobs.first(where:{$0.id == id}), job.state == "complete", let filename = job.output,
-              filename == id + ".mp4" else { throw HarborError.message("视频尚未完成") }
+              filename == id + "." + job.mode.fileExtension else { throw HarborError.message("视频尚未完成") }
         let path = try FileManager.default.url(for:.documentDirectory,in:.userDomainMask,appropriateFor:nil,create:true).appendingPathComponent(filename)
         guard FileManager.default.fileExists(atPath:path.path) else { throw HarborError.message("视频文件已被移动或删除") }
         return path
@@ -208,13 +209,13 @@ import CryptoKit
         let callback = backgroundCompletion; backgroundCompletion = nil; callback?()
     }
     private func merge(_ index: Int) {
-        processing = true; jobs[index].state = "processing"; jobs[index].message = "正在校验并合并 MP4，请保持应用在前台"
+        processing = true; jobs[index].state = "processing"; jobs[index].message = jobs[index].mode == .transcode ? "正在转码 H.264/AAC，请保持应用在前台" : "正在无损封装 \(jobs[index].mode.fileExtension.uppercased())，请保持应用在前台"
         guard persist() else { processing = false; return }; publish()
         let job = jobs[index]
         do {
             let directory = try store.directory(job.id)
             let docs = try FileManager.default.url(for:.documentDirectory,in:.userDomainMask,appropriateFor:nil,create:true)
-            let output = docs.appendingPathComponent(job.id + ".mp4")
+            let output = docs.appendingPathComponent(job.id + "." + job.mode.fileExtension)
             Task {
                 do {
                     try await Task.detached(priority:.utility) { try Self.process(job,directory:directory,output:output) }.value
@@ -230,7 +231,7 @@ import CryptoKit
         } catch { jobs[index].state = "failed"; jobs[index].message = Self.safeError(error); processing = false; persist(); publish() }
     }
     private nonisolated static func process(_ job: DownloadJob, directory: URL, output: URL) throws {
-        let temporary = directory.appendingPathComponent("result.mp4")
+        let temporary = directory.appendingPathComponent("result." + job.mode.fileExtension)
         if FileManager.default.fileExists(atPath:temporary.path) { try FileManager.default.removeItem(at:temporary) }
         var inputs: [URL] = []
         for track in Set(job.parts.map(\.track)).sorted() {
@@ -263,7 +264,7 @@ import CryptoKit
                 inputs.append(input)
             }
         }
-        try NativeMedia.remux(video:inputs[0],audio:inputs.count > 1 ? inputs[1] : nil,output:temporary)
+        try NativeMedia.remux(video:inputs[0],audio:inputs.count > 1 ? inputs[1] : nil,output:temporary,mode:job.mode,deep:job.deepVerify ?? true)
         guard !FileManager.default.fileExists(atPath:output.path) else { throw HarborError.message("输出文件已存在，未覆盖；请检查文件应用") }
         try FileManager.default.moveItem(at:temporary,to:output)
     }
