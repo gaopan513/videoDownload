@@ -71,6 +71,9 @@ struct MediaCandidate: Codable {
     let kind: String
     let quality: String
     let context: WebContext
+    // Some players hand WebKit an in-memory HLS list rather than a network URL.
+    // Stored with the encrypted job; url is its HTTP base for relative resources.
+    var inlinePlaylist: String? = nil
     var codec: String = "unknown"
     var message = "编码将在下载前进行少量探测"
     var publicValue: [String: Any] { ["id":id, "title":title, "kind":kind, "quality":quality, "codec":codec, "message":message] }
@@ -107,6 +110,10 @@ struct DownloadJob: Codable {
     var output: String?
     var outputMode: OutputMode?
     var deepVerify: Bool?
+    // Bumped whenever the part plan is replaced (for example an MP4 falling back
+    // from byte ranges to one whole-file request). Late callbacks carrying the old
+    // value are discarded instead of writing into the new plan.
+    var planGeneration: Int?
     var mode: OutputMode { outputMode ?? .mp4 }
     var publicValue: [String: Any] {
         let progress = parts.reduce(0.0) { value,part in

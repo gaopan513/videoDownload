@@ -8,9 +8,14 @@ import WebKit
     private var continuation: CheckedContinuation<[MediaCandidate], Error>?
     private var timeout: Task<Void,Never>?
     private var discovered: [(URL,URL,String)] = []
+    private var inlineDiscovered: [(String,URL)] = []
     private var source: URL?
     private var finishing = false
     private var navigationErrors: [String] = []
+    private var verificationPage = false
+    // Keep verification state for retries in this resolver's lifetime, without
+    // sharing Safari's cookies or persisting them across app launches.
+    private let websiteDataStore = WKWebsiteDataStore.nonPersistent()
     private var userAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Version/17.0 Mobile/15E148 Safari/604.1"
 
     func resolve(_ url: URL, interactive: Bool, presenter: UIViewController) async throws -> [MediaCandidate] {
@@ -19,12 +24,12 @@ import WebKit
             return try await expand(url,context:WebContext(referer:url,userAgent:userAgent,cookies:[]),title:"视频",hint:url.pathExtension == "m3u8" ? "hls" : "mp4")
         }
         return try await withCheckedThrowingContinuation { continuation in
-            self.continuation = continuation; self.source = url; discovered = []; finishing = false; navigationErrors = []
+            self.continuation = continuation; self.source = url; discovered = []; inlineDiscovered = []; finishing = false; navigationErrors = []; verificationPage = false
             let controller = WKUserContentController()
             controller.add(self,name:"harborMedia")
             controller.addUserScript(WKUserScript(source:Self.script,injectionTime:.atDocumentStart,forMainFrameOnly:false))
             let config = WKWebViewConfiguration()
-            config.userContentController = controller; config.websiteDataStore = .nonPersistent()
+            config.userContentController = controller; config.websiteDataStore = websiteDataStore
             config.allowsInlineMediaPlayback = true; config.mediaTypesRequiringUserActionForPlayback = []
             let web = WKWebView(frame:.zero,configuration:config)
             self.web = web; web.navigationDelegate = self
@@ -44,7 +49,21 @@ import WebKit
         }
     }
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard !finishing, discovered.count < 64, let info = message.body as? [String:String],
+        guard !finishing, let info = message.body as? [String:String] else { return }
+        if info["event"] == "pageState", message.frameInfo.isMainFrame {
+            verificationPage = info["verification"] == "true"
+            if verificationPage { navigation?.topViewController?.navigationItem.prompt = "请先完成网页验证，再播放视频" }
+            else { navigation?.topViewController?.navigationItem.prompt = nil }
+            return
+        }
+        if info["event"] == "inlineHLS" {
+            guard inlineDiscovered.count < 4, let text = info["playlist"], text.utf8.count <= 1024*1024,
+                  text.hasPrefix("#EXTM3U"),
+                  let frame = message.frameInfo.request.url.flatMap({ try? webURL($0.absoluteString) }) ?? source,
+                  !inlineDiscovered.contains(where: { $0.0 == text && $0.1 == frame }) else { return }
+            inlineDiscovered.append((text,frame)); return
+        }
+        guard discovered.count < 64,
               let raw = info["url"], raw.count <= 8192, let url = try? webURL(raw),
               let frame = message.frameInfo.request.url.flatMap({ try? webURL($0.absoluteString) }) ?? source else { return }
         if !discovered.contains(where: { $0.0 == url }) { discovered.append((url,frame,info["kind"] ?? "unknown")) }
@@ -80,6 +99,15 @@ import WebKit
     }
     @objc private func done() {
         guard !finishing, continuation != nil, let web else { return }
+        // Do not tear down a challenge/slow player at the automatic deadline.
+        // The user can complete verification and playback in this same session.
+        if discovered.isEmpty && inlineDiscovered.isEmpty && navigationErrors.isEmpty {
+            timeout?.cancel(); timeout = nil
+            navigation?.topViewController?.navigationItem.prompt = verificationPage
+                ? "请先完成网页验证，再播放视频并点击完成识别"
+                : "尚未发现视频，请播放后再次点击完成识别"
+            return
+        }
         finishing = true; timeout?.cancel()
         navigation?.topViewController?.navigationItem.rightBarButtonItem?.isEnabled = false
         Task { @MainActor in
@@ -90,6 +118,13 @@ import WebKit
             let title = String((web.title ?? "视频").prefix(160))
             var results: [MediaCandidate] = []
             var failures: [String] = []
+            for (text,base) in inlineDiscovered {
+                let context = WebContext(referer:base,userAgent:userAgent,cookies:stored)
+                do {
+                    let playlist = try HLS.parse(text,base:base)
+                    results.append(contentsOf:candidates(playlist,url:base,context:context,title:title,inlinePlaylist:text))
+                } catch { failures.append((error as? HarborError)?.errorDescription ?? "内嵌播放列表无效") }
+            }
             // Process only a bounded number of detections; the user can reopen the page for another player.
             for (url,referer,hint) in discovered.prefix(12) {
                 let context = WebContext(referer:referer,userAgent:userAgent,cookies:stored)
@@ -101,7 +136,7 @@ import WebKit
             }
             if results.isEmpty {
                 let detail = (navigationErrors + Array(failures.prefix(3))).joined(separator:"；")
-                finish(.failure(HarborError.message("识别失败：发现 \(discovered.count) 个媒体地址。\(detail.isEmpty ? "请使用打开网页识别，播放视频后点击完成识别。" : detail)")))
+                finish(.failure(HarborError.message("识别失败：发现 \(discovered.count + inlineDiscovered.count) 个媒体地址。\(detail.isEmpty ? "请使用打开网页识别，播放视频后点击完成识别。" : detail)")))
             }
             else { finish(.success(Array(results.prefix(32)))) }
         }
@@ -109,7 +144,7 @@ import WebKit
     private func finish(_ result: Result<[MediaCandidate],Error>) {
         timeout?.cancel(); timeout = nil
         web?.stopLoading(); web?.configuration.userContentController.removeScriptMessageHandler(forName:"harborMedia")
-        navigation?.dismiss(animated:true); navigation = nil; web = nil; discovered = []
+        navigation?.dismiss(animated:true); navigation = nil; web = nil; discovered = []; inlineDiscovered = []
         let saved = continuation; continuation = nil; finishing = false; saved?.resume(with:result)
     }
     private func expand(_ url: URL, context: WebContext, title: String, hint: String) async throws -> [MediaCandidate] {
@@ -122,7 +157,10 @@ import WebKit
         if hint == "mp4" { return [MediaCandidate(title:title,url:url,audioURL:nil,kind:"mp4",quality:"源画质",context:context)] }
         let http = HTTP(context); defer { http.close() }
         let playlist = try await http.playlist(url)
-        if playlist.variants.isEmpty { return [MediaCandidate(title:title,url:url,audioURL:nil,kind:"hls",quality:"源画质",context:context)] }
+        return candidates(playlist,url:url,context:context,title:title)
+    }
+    private func candidates(_ playlist: Playlist, url: URL, context: WebContext, title: String, inlinePlaylist: String? = nil) -> [MediaCandidate] {
+        if playlist.variants.isEmpty { return [MediaCandidate(title:title,url:url,audioURL:nil,kind:"hls",quality:"源画质",context:context,inlinePlaylist:inlinePlaylist)] }
         return playlist.variants.prefix(16).flatMap { variant -> [MediaCandidate] in
             let tracks = playlist.audio.filter { $0.group == variant.audioGroup }
             if tracks.isEmpty { return [MediaCandidate(title:title,url:variant.url,audioURL:nil,kind:"hls",quality:variant.quality,context:context)] }
@@ -131,9 +169,26 @@ import WebKit
     }
     static let script = #"""
     (() => {
+      const inlineLists = new Set();
+      const inlineHLS = text => {
+        if (typeof text !== 'string' || text.length > 1024*1024 || inlineLists.size >= 4) return;
+        text = text.trim();
+        if (!text.startsWith('#EXTM3U') || inlineLists.has(text)) return;
+        inlineLists.add(text);
+        window.webkit.messageHandlers.harborMedia.postMessage({event:'inlineHLS',playlist:text});
+      };
       const send = (raw, mime = '', media = false) => {
         try {
           if (!raw) return;
+          // Native Safari players may receive a data: HLS source; MSE players
+          // may fetch the same data URI before replacing video.src with a blob.
+          if (typeof raw === 'string' && /^data:application\/(?:vnd\.apple\.mpegurl|x-mpegurl)[;,]/i.test(raw)) {
+            if (raw.length > 1500000) return;
+            const comma = raw.indexOf(',');
+            if (comma < 0) return;
+            inlineHLS(/;base64$/i.test(raw.slice(0,comma)) ? atob(raw.slice(comma+1)) : decodeURIComponent(raw.slice(comma+1)));
+            return;
+          }
           const u = new URL(raw, location.href);
           if (!/^https?:$/.test(u.protocol)) return;
           const hls = /mpegurl/i.test(mime) || /\.m3u8$/i.test(u.pathname);
@@ -142,7 +197,22 @@ import WebKit
             window.webkit.messageHandlers.harborMedia.postMessage({url:u.href,kind:hls?'hls':mp4?'mp4':'unknown'});
         } catch {}
       };
+      // Capture only small HLS blobs, never MSE video buffers or worker scripts.
+      const createObjectURL = URL.createObjectURL;
+      if (createObjectURL) URL.createObjectURL = function(value) {
+        const url = createObjectURL.call(this,value);
+        if (value && value.size <= 1024*1024 && /mpegurl/i.test(value.type || '') && typeof value.text === 'function')
+          value.text().then(inlineHLS).catch(() => {});
+        return url;
+      };
+      let lastPageState;
       const scan = () => {
+        const verification = /访问验证|安全验证|人机验证/.test(document.title || '') &&
+          /确认你是真人|完成验证|人机验证/.test((document.body?.innerText || '').slice(0,2000));
+        if (verification !== lastPageState) {
+          lastPageState = verification;
+          window.webkit.messageHandlers.harborMedia.postMessage({event:'pageState',verification:String(verification)});
+        }
         document.querySelectorAll('video,video source').forEach(v => send(v.currentSrc || v.src, v.type || '', true));
         performance.getEntriesByType('resource').forEach(r => send(r.name));
       };

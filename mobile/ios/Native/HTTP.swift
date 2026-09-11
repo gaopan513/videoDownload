@@ -50,11 +50,38 @@ final class HTTP: NSObject, URLSessionTaskDelegate {
         guard let text = String(data:data,encoding:.utf8) else { throw HarborError.message("播放列表不是 UTF-8") }
         return try HLS.parse(text,base:base)
     }
+    // Byte-range download turns a single-connection MP4 into several parallel
+    // short requests. Only used when the server answers 206 to a one-byte probe
+    // and reports a total length, so unsupported servers keep the old path.
+    func mp4Ranges(_ url: URL) async -> [ByteRange]? {
+        // Stream the probe: a server that ignores Range would otherwise make this
+        // buffer the whole video just to decide the download plan.
+        guard let (stream,response) = try? await session.bytes(for:context.request(url,range:ByteRange(offset:0,length:1))),
+              let http = response as? HTTPURLResponse, http.statusCode == 206,
+              let contentRange = http.value(forHTTPHeaderField:"Content-Range"),
+              let slash = contentRange.lastIndex(of:"/"),
+              let total = Int64(contentRange[contentRange.index(after:slash)...].trimmingCharacters(in:.whitespaces))
+        else { return nil }
+        let mime = (http.mimeType ?? "").lowercased()
+        guard mime.contains("mp4") || mime.contains("octet-stream") || mime.isEmpty else { return nil }
+        // Drain the single probe byte so the connection can be reused.
+        do { for try await byte in stream { _ = byte; break } } catch { return nil }
+        return DownloadScheduling.mp4Chunks(totalLength:total,acceptsRanges:true)
+    }
     func prepare(_ candidate: MediaCandidate) async throws -> [DownloadPart] {
-        if candidate.kind == "mp4" { return [DownloadPart(source:Part(url:candidate.url),track:0,index:0)] }
+        if candidate.kind == "mp4" {
+            let chunks = await mp4Ranges(candidate.url)
+            guard let chunks else { return [DownloadPart(source:Part(url:candidate.url),track:0,index:0)] }
+            return chunks.enumerated().map { index,range in
+                DownloadPart(source:Part(url:candidate.url,range:range),track:0,index:index)
+            }
+        }
         var output: [DownloadPart] = []
         for (track,url) in ([candidate.url] + (candidate.audioURL.map { [$0] } ?? [])).enumerated() {
-            let playlist = try await playlist(url)
+            let playlist: Playlist
+            if track == 0, let text = candidate.inlinePlaylist {
+                playlist = try HLS.parse(text,base:url)
+            } else { playlist = try await self.playlist(url) }
             guard playlist.variants.isEmpty else { throw HarborError.message("请选择具体清晰度，不能直接下载主播放列表") }
             // Read each key declaration occurrence rather than cache solely by URI: servers can rotate bytes at the same URI.
             var previous: Encryption?, key: Data?

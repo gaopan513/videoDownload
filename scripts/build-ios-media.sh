@@ -85,4 +85,3 @@ cp "$BASE/source/dav1d-$DAV1D_VERSION/COPYING" "$BASE/dav1d-LICENSE.txt"
 printf 'FFmpeg %s\nSource SHA256: %s\n' "$VERSION" "$SHA" > "$BASE/build-info.txt"
 printf 'dav1d %s\nSource SHA256: %s\nH.264 encoder: Apple VideoToolbox; audio encoder: FFmpeg AAC\n' "$DAV1D_VERSION" "$DAV1D_SHA" >> "$BASE/build-info.txt"
 xcodebuild -version >> "$BASE/build-info.txt"
-

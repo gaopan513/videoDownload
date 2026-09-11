@@ -2,6 +2,16 @@ import XCTest
 @testable import HarborCore
 
 final class DownloadSchedulingTests: XCTestCase {
+    func testReceiveActivityDistinguishesIdleFromUnknownContentLength() {
+        var activity = DownloadActivity(at:10)
+        XCTAssertEqual(activity.idleSeconds(at:45),35)
+        XCTAssertEqual(activity.bytesPerSecond(at:45),0)
+        activity.receive(1024,at:46)
+        XCTAssertEqual(activity.idleSeconds(at:47),1)
+        XCTAssertGreaterThan(activity.bytesPerSecond(at:47),0)
+        activity.receive(0,at:80)
+        XCTAssertEqual(activity.idleSeconds(at:80),34)
+    }
     func testBackgroundCompletionWaitsForEventsHashesAndHandlerExactlyOnce() {
         var gate = DownloadFinalizationGate()
         gate.begin("job:0"); gate.begin("job:1")
@@ -81,5 +91,27 @@ final class DownloadSchedulingTests: XCTestCase {
         XCTAssertEqual(job.publicValue["done"] as? Double,1.99)
         job.state = "complete"
         XCTAssertEqual(job.publicValue["done"] as? Double,1)
+    }
+    func testMP4RangePlanStaysSingleRequestWithoutProvenRangeSupport() {
+        // Servers without Range (or too small to split) must keep one full request.
+        XCTAssertNil(DownloadScheduling.mp4Chunks(totalLength:1024*1024*1024,acceptsRanges:false))
+        XCTAssertNil(DownloadScheduling.mp4Chunks(totalLength:1024,acceptsRanges:true))
+        XCTAssertNil(DownloadScheduling.mp4Chunks(totalLength:DownloadScheduling.mp4MinSize - 1,acceptsRanges:true))
+        XCTAssertNil(DownloadScheduling.mp4Chunks(totalLength:0,acceptsRanges:true))
+    }
+    func testMP4RangePlanCoversWholeFileExactlyOnce() {
+        let size: Int64 = 100 * 1024 * 1024 + 12345
+        guard let chunks = DownloadScheduling.mp4Chunks(totalLength:size,acceptsRanges:true) else { return XCTFail("expected chunks") }
+        XCTAssertGreaterThan(chunks.count,1)
+        XCTAssertEqual(chunks[0].offset,0)
+        for (index,chunk) in chunks.enumerated() {
+            XCTAssertGreaterThan(chunk.length,0)
+            XCTAssertLessThanOrEqual(chunk.length,DownloadScheduling.mp4ChunkSize)
+            if index > 0 { XCTAssertEqual(chunks[index-1].offset + chunks[index-1].length,chunk.offset) }
+        }
+        XCTAssertEqual(chunks.last!.offset + chunks.last!.length,size)
+    }
+    func testMP4RangePlanRejectsAbsurdChunkCount() {
+        XCTAssertNil(DownloadScheduling.mp4Chunks(totalLength:DownloadScheduling.mp4ChunkSize * 4097,acceptsRanges:true))
     }
 }

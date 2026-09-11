@@ -85,7 +85,10 @@ enum HLS {
             }
             if line.hasPrefix("#EXT-X-BYTERANGE:") { rangeText = String(line.dropFirst(17)); continue }
             if line.hasPrefix("#EXTINF:") {
-                guard let value = Double(line.dropFirst(8).split(separator:",").first ?? ""), value.isFinite, value > 0, value <= 86400 else { throw HarborError.message("HLS 分片时长无效") }
+                // Some VOD servers round subsecond fragments down to zero. Keep
+                // their bytes and sequence/IV position; dropping them loses media.
+                let raw = line.dropFirst(8).split(separator:",",omittingEmptySubsequences:false).first ?? ""
+                guard let value = Double(raw.trimmingCharacters(in:.whitespaces)), value.isFinite, value >= 0, value <= 86400 else { throw HarborError.message("HLS 分片时长无效") }
                 duration = value; continue
             }
             if line == "#EXT-X-ENDLIST" { ended = true; continue }

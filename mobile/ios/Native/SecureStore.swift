@@ -5,6 +5,11 @@ import CryptoKit
 final class SecureStore {
     let root: URL
     private let key: SymmetricKey
+    // Native integration tests use isolated encrypted storage, without Keychain.
+    init(root: URL, key: SymmetricKey) throws {
+        self.root = root; self.key = key
+        try FileManager.default.createDirectory(at:root,withIntermediateDirectories:true)
+    }
     init() throws {
         root = try FileManager.default.url(for:.applicationSupportDirectory,in:.userDomainMask,appropriateFor:nil,create:true).appendingPathComponent("Harbor",isDirectory:true)
         try FileManager.default.createDirectory(at:root,withIntermediateDirectories:true,attributes:[.protectionKey:FileProtectionType.completeUntilFirstUserAuthentication])

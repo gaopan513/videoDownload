@@ -1,9 +1,79 @@
 import XCTest
 import WebKit
 import AVFoundation
+import CryptoKit
 @testable import StreamHarbor
 
 final class NativeTests: XCTestCase {
+    @MainActor func testHLSHandoffPreservesRangeAndRejectsRetiredCallbacks() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at:directory) }
+        let store = try SecureStore(root:directory,key:SymmetricKey(size:.bits256))
+        let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [PendingMediaProtocol.self]
+        let engine = try DownloadEngine(store:store,foregroundConfiguration:config,backgroundConfiguration:config,observeLifecycle:false)
+        defer { engine.close() }
+        await engine.startup?.value
+        engine.setForeground(true)
+        let url = URL(string:"https://fixture.test/segment.png?verify=private")!
+        let candidate = MediaCandidate(title:"handoff",url:url,audioURL:nil,kind:"hls",quality:"",context:WebContext(referer:url,userAgent:"test",cookies:[]))
+        try engine.add(candidate,parts:[DownloadPart(source:Part(url:url,range:ByteRange(offset:120,length:512),duration:6),track:0,index:0)])
+        let name = try XCTUnwrap(engine.transfers.keys.first)
+        let old = try XCTUnwrap(engine.transfers[name])
+        XCTAssertEqual(old.originalRequest?.value(forHTTPHeaderField:"Range"),"bytes=120-631")
+        let callbackSession = URLSession(configuration:config)
+        defer { callbackSession.invalidateAndCancel() }
+        engine.urlSession(callbackSession,downloadTask:old,didWriteData:128,totalBytesWritten:128,totalBytesExpectedToWrite:-1)
+        XCTAssertEqual(engine.jobs[0].parts[0].expected,512)
+        XCTAssertEqual(engine.jobs[0].publicValue["done"] as? Double,0.25)
+        engine.setForeground(false)
+        let background = try XCTUnwrap(engine.transfers[name])
+        XCTAssertFalse(old === background)
+        XCTAssertEqual(background.originalRequest?.value(forHTTPHeaderField:"Range"),"bytes=120-631")
+        engine.urlSession(callbackSession,downloadTask:old,didWriteData:384,totalBytesWritten:512,totalBytesExpectedToWrite:512)
+        engine.urlSession(callbackSession,task:old,didCompleteWithError:URLError(.cancelled))
+        XCTAssertTrue(engine.transfers[name] === background)
+        XCTAssertEqual(engine.jobs[0].parts[0].received,0)
+        XCTAssertEqual(engine.jobs[0].parts[0].retries,0)
+        engine.setForeground(true)
+        let resumed = try XCTUnwrap(engine.transfers[name])
+        XCTAssertFalse(resumed === background)
+        try await engine.control(engine.jobs[0].id,action:"pause")
+        engine.setForeground(false)
+        XCTAssertTrue(engine.transfers.isEmpty)
+        XCTAssertEqual(try store.load()[0].state,"paused")
+        try await engine.control(engine.jobs[0].id,action:"cancel")
+        XCTAssertEqual(try store.load()[0].state,"cancelled")
+        XCTAssertTrue(engine.transfers.isEmpty)
+    }
+    @MainActor func testWholeMP4IsNotRestartedByForegroundHandoff() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at:directory) }
+        let store = try SecureStore(root:directory,key:SymmetricKey(size:.bits256))
+        let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [PendingMediaProtocol.self]
+        let engine = try DownloadEngine(store:store,foregroundConfiguration:config,backgroundConfiguration:config,observeLifecycle:false)
+        defer { engine.close() }
+        await engine.startup?.value
+        let url = URL(string:"https://fixture.test/movie.mp4")!
+        let candidate = MediaCandidate(title:"mp4",url:url,audioURL:nil,kind:"mp4",quality:"",context:WebContext(referer:url,userAgent:"test",cookies:[]))
+        try engine.add(candidate,parts:[DownloadPart(source:Part(url:url),track:0,index:0)])
+        let name = try XCTUnwrap(engine.transfers.keys.first), original = try XCTUnwrap(engine.transfers[name])
+        engine.setForeground(false); engine.setForeground(true)
+        XCTAssertTrue(engine.transfers[name] === original)
+        try await engine.control(engine.jobs[0].id,action:"cancel")
+    }
+    func testZeroDeclaredDurationDoesNotDropTransportStream() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at:directory,withIntermediateDirectories:true)
+        defer { try? FileManager.default.removeItem(at:directory) }
+        let source = try fixtures.appendingPathComponent("video.ts")
+        try FileManager.default.copyItem(at:source,to:directory.appendingPathComponent("zero.plain"))
+        let parsed = try HLS.parse("#EXTM3U\n#EXTINF:0,\nzero.ts\n#EXT-X-ENDLIST",base:URL(string:"https://fixture.test/index.m3u8")!)
+        let input = directory.appendingPathComponent("zero.m3u8")
+        try HLS.localPlaylist([(parsed.parts[0],"zero.plain")]).write(to:input,atomically:true,encoding:.utf8)
+        let output = directory.appendingPathComponent("zero.mp4")
+        try NativeMedia.remux(video:input,audio:nil,output:output,deep:true)
+        XCTAssertEqual(output.path.withCString { harbor_duration($0) },2,accuracy:0.15)
+    }
     func testLocalFragmentedMP4WithPlainNamesInAllOutputModes() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at:directory,withIntermediateDirectories:true)
@@ -195,6 +265,13 @@ final class NativeTests: XCTestCase {
         try RecordHistory.delete(active.id,from:&jobs,save:store.save)
         XCTAssertTrue(try store.load().isEmpty)
     }
+}
+
+private final class PendingMediaProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {} // Hold until handoff/cancellation; no network.
+    override func stopLoading() {}
 }
 
 private final class MissingMediaProtocol: URLProtocol {

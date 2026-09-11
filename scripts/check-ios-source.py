@@ -1,20 +1,28 @@
 """Optional Windows syntax pass; does not replace Swift/Xcode type checking."""
-import pathlib, sys, plistlib, hashlib, json
+import importlib, json, hashlib, pathlib, plistlib, sys
 root = pathlib.Path(__file__).resolve().parents[1]
+# Prefer the vendored copies, but fall back to whatever the interpreter can import
+# so the check still runs when the local directory is only a placeholder.
 sys.path.insert(0, str(root / '.tools' / 'ios-checks'))
-from tree_sitter import Language, Parser
-import tree_sitter_swift
+try:
+    from tree_sitter import Language, Parser
+    import tree_sitter_swift
+except ImportError as error:
+    print(f'tree-sitter unavailable ({error}); install tree_sitter and tree_sitter_swift, or run this check on macOS.')
+    sys.exit(2)
 parser = Parser(Language(tree_sitter_swift.language()))
+
 errors = []
-files = list((root / 'mobile' / 'ios').rglob('*.swift'))
+files = sorted((root / 'mobile' / 'ios').rglob('*.swift'))
 for file in files:
     tree = parser.parse(file.read_bytes())
-    def visit(node):
+    # Iterative walk: a recursive visitor can exceed the stack on deep trees.
+    stack = [tree.root_node]
+    while stack:
+        node = stack.pop()
         if node.type == 'ERROR' or node.is_missing:
-            errors.append(f'{file.relative_to(root)}:{node.start_point.row + 1}:{node.start_point.column + 1}: {node.type}')
-        for child in node.children:
-            visit(child)
-    visit(tree.root_node)
+            errors.append(f'{file.relative_to(root)}:{node.start_point[0] + 1}:{node.start_point[1] + 1}: {node.type}')
+        stack.extend(node.children)
 for file in (root / 'mobile' / 'ios' / 'App').iterdir():
     if file.suffix in ('.plist', '.xcprivacy'):
         plistlib.loads(file.read_bytes())

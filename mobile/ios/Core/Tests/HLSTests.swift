@@ -2,6 +2,18 @@ import XCTest
 @testable import HarborCore
 
 final class HLSTests: XCTestCase {
+    func testRoundedZeroDurationRetainsBytesSequenceAndEncryption() throws {
+        let p = try HLS.parse("#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:257\n#EXT-X-KEY:METHOD=AES-128,URI=\"key\"\n#EXTINF:5,\na.ts\n#EXTINF:0,\nshort.ts\n#EXTINF:2,\nb.ts\n#EXT-X-ENDLIST",base:base)
+        XCTAssertEqual(p.parts.map(\.duration),[5,0,2])
+        XCTAssertEqual(p.parts[1].url.lastPathComponent,"short.ts")
+        XCTAssertEqual(p.parts[2].encryption?.iv.suffix(2),Data([1,3]))
+        let local = HLS.localPlaylist(p.parts.enumerated().map { ($0.element,"\($0.offset).plain") })
+        XCTAssertTrue(local.contains("#EXTINF:0.0,\n1.plain"))
+        XCTAssertEqual(try HLS.parse(local,base:base).parts.count,3)
+        for raw in ["-0.1", "", "nan", "inf"] {
+            XCTAssertThrowsError(try HLS.parse("#EXTM3U\n#EXTINF:\(raw),title\na.ts\n#EXT-X-ENDLIST",base:base))
+        }
+    }
     func testOutputModeMigrationAndRetryRollback() throws {
         let u = URL(string:"https://example.test/video.mp4")!
         let c = MediaCandidate(title:"retry",url:u,audioURL:nil,kind:"mp4",quality:"",context:WebContext(referer:u,userAgent:"test",cookies:[]))
