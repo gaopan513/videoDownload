@@ -182,7 +182,7 @@ private struct Expansion {
                     let hit = detection[next]
                     next += 1
                     group.addTask { [title, userAgent, stored] in
-                        do { return Expansion(index:index,candidates:try await Resolver.expandDetected(hit.url,context:WebContext(referer:hit.frame,userAgent:userAgent,cookies:stored),title:title,hint:hit.kind),failure:nil) }
+                        do { return Expansion(index:index,candidates:try await Resolver.expand(hit.url,context:WebContext(referer:hit.frame,userAgent:userAgent,cookies:stored),title:title,hint:hit.kind),failure:nil) }
                         catch { return Expansion(index:index,candidates:[],failure:(error as? HarborError)?.errorDescription ?? "网络请求失败（\((error as NSError).code)）") }
                     }
                 }
