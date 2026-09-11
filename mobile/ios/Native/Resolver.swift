@@ -30,7 +30,7 @@ private struct Expansion {
     func resolve(_ url: URL, interactive: Bool, presenter: UIViewController) async throws -> [MediaCandidate] {
         guard continuation == nil else { throw HarborError.message("已有网页正在识别") }
         if ["mp4","m3u8"].contains(url.pathExtension.lowercased()) && !interactive {
-            return try await expand(url,context:WebContext(referer:url,userAgent:userAgent,cookies:[]),title:"视频",hint:url.pathExtension == "m3u8" ? "hls" : "mp4")
+            return try await Resolver.expand(url,context:WebContext(referer:url,userAgent:userAgent,cookies:[]),title:"视频",hint:url.pathExtension == "m3u8" ? "hls" : "mp4")
         }
         return try await withCheckedThrowingContinuation { continuation in
             self.continuation = continuation; self.source = url; discovered = []; inlineDiscovered = []; finishing = false; navigationErrors = []; verificationPage = false
@@ -80,7 +80,7 @@ private struct Expansion {
         if let index = discovered.firstIndex(where: { $0.url == url }) {
             // Same URL seen again: keep the known kind, upgrade to a stronger origin
             // (video/request beat passive resource-timeline hits), never downgrade.
-            if originRank(origin) > originRank(discovered[index].origin) { discovered[index].origin = origin }
+            if Resolver.originRank(origin) > Resolver.originRank(discovered[index].origin) { discovered[index].origin = origin }
             return
         }
         discovered.append((url:url, frame:frame, kind:kind, origin:origin))
@@ -115,7 +115,9 @@ private struct Expansion {
     func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse, decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
         let mime = navigationResponse.response.mimeType ?? ""
         if let url = navigationResponse.response.url, let source, mime.contains("mpegurl") || mime == "video/mp4" {
-            if let index = discovered.firstIndex(where: { $0.url == url }) { if originRank("request") > originRank(index.origin) { discovered[index].origin = "request" } }
+            if let index = discovered.firstIndex(where: { $0.url == url }) {
+                if Resolver.originRank("request") > Resolver.originRank(discovered[index].origin) { discovered[index].origin = "request" }
+            }
             else if discovered.count < 64 { discovered.append((url:url, frame:source, kind:mime.contains("mpegurl") ? "hls" : "mp4", origin:"request")) }
         }
         decisionHandler(.allow)
@@ -150,7 +152,7 @@ private struct Expansion {
                 let context = WebContext(referer:base,userAgent:userAgent,cookies:stored)
                 do {
                     let playlist = try HLS.parse(text,base:base)
-                    results.append(contentsOf:candidates(playlist,url:base,context:context,title:title,inlinePlaylist:text))
+                    results.append(contentsOf:Resolver.candidates(playlist,url:base,context:context,title:title,inlinePlaylist:text))
                 } catch { failures.append((error as? HarborError)?.errorDescription ?? "内嵌播放列表无效") }
             }
             // Process only a bounded number of detections; the user can reopen the page for another player.
@@ -160,7 +162,8 @@ private struct Expansion {
             // collapse signed variants of one file (same path, different token).
             var detection = Array(discovered.prefix(12))
             detection = detection.enumerated().sorted { lhs, rhs in
-                if originRank(lhs.element.origin) != originRank(rhs.element.origin) { return originRank(lhs.element.origin) > originRank(rhs.element.origin) }
+                let lRank = Resolver.originRank(lhs.element.origin), rRank = Resolver.originRank(rhs.element.origin)
+                if lRank != rRank { return lRank > rRank }
                 return lhs.offset < rhs.offset
             }.map(\.element)
             var seenPaths = Set<String>()
