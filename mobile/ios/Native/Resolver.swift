@@ -174,6 +174,12 @@ private struct Expansion {
             }
             var expansions = [Expansion]()
             expansions.reserveCapacity(detection.count)
+            // Copy MainActor state to plain locals BEFORE entering nonisolated
+            // task closures: a capture list would capture the reference, and
+            // referencing isolated properties inside is a compile error.
+            let resolvedTitle = title
+            let resolvedAgent = userAgent
+            let resolvedCookies = stored
             await withTaskGroup(of: Expansion.self) { group in
                 var next = 0
                 func add() {
@@ -181,8 +187,8 @@ private struct Expansion {
                     let index = next
                     let hit = detection[next]
                     next += 1
-                    group.addTask { [title, userAgent, stored] in
-                        do { return Expansion(index:index,candidates:try await Resolver.expand(hit.url,context:WebContext(referer:hit.frame,userAgent:userAgent,cookies:stored),title:title,hint:hit.kind),failure:nil) }
+                    group.addTask {
+                        do { return Expansion(index:index,candidates:try await Resolver.expand(hit.url,context:WebContext(referer:hit.frame,userAgent:resolvedAgent,cookies:resolvedCookies),title:resolvedTitle,hint:hit.kind),failure:nil) }
                         catch { return Expansion(index:index,candidates:[],failure:(error as? HarborError)?.errorDescription ?? "网络请求失败（\((error as NSError).code)）") }
                     }
                 }
