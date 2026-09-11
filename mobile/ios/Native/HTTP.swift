@@ -7,7 +7,10 @@ final class HTTP: NSObject, URLSessionTaskDelegate {
     init(_ context: WebContext) { self.context = context }
     lazy var session: URLSession = {
         let c = URLSessionConfiguration.ephemeral; c.httpShouldSetCookies = false; c.httpCookieStorage = nil; c.urlCredentialStorage = nil; c.urlCache = nil
-        c.timeoutIntervalForRequest = 30; c.timeoutIntervalForResource = 60
+        // Idle timeout 15s: resolution probes small metadata requests, so a silent
+        // host should fail quickly. Resource timeout 90s: still allows slow but
+        // actively streaming responses to finish.
+        c.timeoutIntervalForRequest = 15; c.timeoutIntervalForResource = 90
         return URLSession(configuration:c,delegate:self,delegateQueue:nil)
     }()
     func close() { session.invalidateAndCancel() }
@@ -35,6 +38,14 @@ final class HTTP: NSObject, URLSessionTaskDelegate {
         guard (200...299).contains(http.statusCode) else { throw HarborError.http(http.statusCode,resource,response.url?.host ?? url.host ?? "媒体服务器") }
         if let range {
             guard http.statusCode == 206, let content = http.value(forHTTPHeaderField:"Content-Range"), content.hasPrefix("bytes \(range.offset)-\(range.offset + range.length - 1)/") else { throw HarborError.message("服务器未返回请求的字节范围") }
+        }
+        // Fast path: when the server states the size, one buffer read replaces tens
+        // of thousands of per-byte suspensions (a 45 KiB playlist is 45,000 of them).
+        if let lengthText = http.value(forHTTPHeaderField:"Content-Length"), let length = Int(lengthText), length > 0, length <= limit {
+            let (data,_) = try await session.data(for:context.request(url,range:range))
+            guard data.count == length else { throw HarborError.message("响应长度与声明不一致") }
+            if let range, data.count != Int(range.length) { throw HarborError.message("分片长度与请求范围不一致") }
+            return (data,response.url ?? url,http.mimeType ?? "")
         }
         var data = Data()
         for try await byte in stream {

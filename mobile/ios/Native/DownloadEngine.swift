@@ -555,7 +555,11 @@ import CryptoKit
             let rate = String(format:"%.0f",(sample?.bytesPerSecond(at:now) ?? 0) / 1024)
             let idle = sample?.idleSeconds(at:now) ?? 0
             let detail = idle >= 30 ? "\(idle) 秒未收到数据，等待服务器或系统调度" : "\(rate) KiB/s"
-            jobs[j].message = (jobs[j].candidate.kind == "hls" ? "已完成 \(jobs[j].parts.filter(\.finished).count) / \(jobs[j].parts.count) 个分片 · " : "") + "已接收 \(received) MiB · \(detail)"
+            // Chunked MP4 shows segment progress like HLS; a single-request MP4
+            // only reports bytes, since it has no natural piece count.
+            let segmented = jobs[j].parts.count > 1
+            let prefix = segmented ? "已完成 \(jobs[j].parts.filter(\.finished).count) / \(jobs[j].parts.count) 段 · " : ""
+            jobs[j].message = prefix + "已接收 \(received) MiB · \(detail)"
         }
         changed?(jobs.map(\.publicValue))
     }

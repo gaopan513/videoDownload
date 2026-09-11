@@ -53,7 +53,10 @@ struct WebContext: Codable {
     var userAgent: String
     var cookies: [WebCookie]
     func request(_ url: URL, range: ByteRange? = nil) -> URLRequest {
-        var req = URLRequest(url: url); req.timeoutInterval = 45
+        // Request timeout (idle between bytes) is deliberately short: dead hosts
+        // and stalled servers must fail fast during resolution. The resource
+        // timeout in HTTP.swift still allows long transfers overall.
+        var req = URLRequest(url: url); req.timeoutInterval = 20
         req.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         if !(referer.scheme == "https" && url.scheme == "http") { req.setValue(referer.absoluteString, forHTTPHeaderField: "Referer") }
         let cookie = cookies.filter { $0.matches(url) }.map { "\($0.name)=\($0.value)" }.joined(separator: "; ")

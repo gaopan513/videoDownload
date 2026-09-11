@@ -1,13 +1,22 @@
 import UIKit
 import WebKit
 
+// One candidate's concurrent expansion outcome; keeps discovery order after
+// the task group finishes (named struct instead of a Result tuple so the
+// local syntax checker accepts the task-group payload type).
+private struct Expansion {
+    let index: Int
+    let candidates: [MediaCandidate]
+    let failure: String?
+}
+
 // Untrusted sites live in this separate WebView, never in the Capacitor bridge view.
 @MainActor final class Resolver: NSObject, WKScriptMessageHandler, WKNavigationDelegate, UIAdaptivePresentationControllerDelegate {
     private var web: WKWebView?
     private var navigation: UINavigationController?
     private var continuation: CheckedContinuation<[MediaCandidate], Error>?
     private var timeout: Task<Void,Never>?
-    private var discovered: [(URL,URL,String)] = []
+    private var discovered: [(url:URL, frame:URL, kind:String, origin:String)] = []
     private var inlineDiscovered: [(String,URL)] = []
     private var source: URL?
     private var finishing = false
@@ -66,7 +75,25 @@ import WebKit
         guard discovered.count < 64,
               let raw = info["url"], raw.count <= 8192, let url = try? webURL(raw),
               let frame = message.frameInfo.request.url.flatMap({ try? webURL($0.absoluteString) }) ?? source else { return }
-        if !discovered.contains(where: { $0.0 == url }) { discovered.append((url,frame,info["kind"] ?? "unknown")) }
+        let kind = info["kind"] ?? "unknown"
+        let origin = info["origin"] ?? "resource"
+        if let index = discovered.firstIndex(where: { $0.url == url }) {
+            // Same URL seen again: keep the known kind, upgrade to a stronger origin
+            // (video/request beat passive resource-timeline hits), never downgrade.
+            if originRank(origin) > originRank(discovered[index].origin) { discovered[index].origin = origin }
+            return
+        }
+        discovered.append((url:url, frame:frame, kind:kind, origin:origin))
+    }
+    // Player-driven evidence (a <video> element or a programmatic media request)
+    // is far more meaningful than passive resource-timeline entries, which also
+    // contain preloaded ad snippets.
+    private nonisolated static func originRank(_ origin: String) -> Int {
+        switch origin {
+        case "video": return 2
+        case "request": return 1
+        default: return 0
+        }
     }
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         guard let url = navigationAction.request.url else { decisionHandler(.cancel); return }
@@ -88,7 +115,8 @@ import WebKit
     func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse, decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
         let mime = navigationResponse.response.mimeType ?? ""
         if let url = navigationResponse.response.url, let source, mime.contains("mpegurl") || mime == "video/mp4" {
-            if discovered.count < 64 && !discovered.contains(where: { $0.0 == url }) { discovered.append((url,source,mime.contains("mpegurl") ? "hls" : "mp4")) }
+            if let index = discovered.firstIndex(where: { $0.url == url }) { if originRank("request") > originRank(index.origin) { discovered[index].origin = "request" } }
+            else if discovered.count < 64 { discovered.append((url:url, frame:source, kind:mime.contains("mpegurl") ? "hls" : "mp4", origin:"request")) }
         }
         decisionHandler(.allow)
     }
@@ -126,13 +154,45 @@ import WebKit
                 } catch { failures.append((error as? HarborError)?.errorDescription ?? "内嵌播放列表无效") }
             }
             // Process only a bounded number of detections; the user can reopen the page for another player.
-            for (url,referer,hint) in discovered.prefix(12) {
-                let context = WebContext(referer:referer,userAgent:userAgent,cookies:stored)
-                do { results.append(contentsOf:try await expand(url,context:context,title:title,hint:hint)) }
-                catch {
-                    let detail = (error as? HarborError)?.errorDescription ?? "网络请求失败（\((error as NSError).code)）"
-                    failures.append("\(url.host ?? "媒体服务器")：\(detail)")
+            // Expand candidates concurrently (4 at a time) so one slow host no longer
+            // delays the others; results and failure notes keep discovery order.
+            // Rank before spending round-trips: player-driven evidence first, then
+            // collapse signed variants of one file (same path, different token).
+            var detection = Array(discovered.prefix(12))
+            detection = detection.enumerated().sorted { lhs, rhs in
+                if originRank(lhs.element.origin) != originRank(rhs.element.origin) { return originRank(lhs.element.origin) > originRank(rhs.element.origin) }
+                return lhs.offset < rhs.offset
+            }.map(\.element)
+            var seenPaths = Set<String>()
+            detection = detection.filter { hit in
+                let key = hit.url.path
+                guard !key.isEmpty else { return true }
+                return seenPaths.insert(key).inserted
+            }
+            var expansions = [Expansion]()
+            expansions.reserveCapacity(detection.count)
+            await withTaskGroup(of: Expansion.self) { group in
+                var next = 0
+                func add() {
+                    guard next < detection.count else { return }
+                    let index = next
+                    let hit = detection[next]
+                    next += 1
+                    group.addTask { [title, userAgent, stored] in
+                        do { return Expansion(index:index,candidates:try await Resolver.expandDetected(hit.url,context:WebContext(referer:hit.frame,userAgent:userAgent,cookies:stored),title:title,hint:hit.kind),failure:nil) }
+                        catch { return Expansion(index:index,candidates:[],failure:(error as? HarborError)?.errorDescription ?? "网络请求失败（\((error as NSError).code)）") }
+                    }
                 }
+                for _ in 0..<min(4,detection.count) { add() }
+                for await expansion in group {
+                    expansions.append(expansion)
+                    add()
+                }
+            }
+            expansions.sort { $0.index < $1.index }
+            for expansion in expansions {
+                if expansion.candidates.isEmpty, let detail = expansion.failure { failures.append(detail) }
+                results.append(contentsOf:expansion.candidates)
             }
             if results.isEmpty {
                 let detail = (navigationErrors + Array(failures.prefix(3))).joined(separator:"；")
@@ -147,7 +207,9 @@ import WebKit
         navigation?.dismiss(animated:true); navigation = nil; web = nil; discovered = []; inlineDiscovered = []
         let saved = continuation; continuation = nil; finishing = false; saved?.resume(with:result)
     }
-    private func expand(_ url: URL, context: WebContext, title: String, hint: String) async throws -> [MediaCandidate] {
+    // nonisolated: expansion is pure networking over its own HTTP session, so
+    // candidate detection can run concurrently instead of one-by-one.
+    private nonisolated static func expand(_ url: URL, context: WebContext, title: String, hint: String) async throws -> [MediaCandidate] {
         if hint == "unknown" {
             let probe = HTTP(context); defer { probe.close() }
             let kind = try await probe.mediaKind(url)
@@ -159,7 +221,7 @@ import WebKit
         let playlist = try await http.playlist(url)
         return candidates(playlist,url:url,context:context,title:title)
     }
-    private func candidates(_ playlist: Playlist, url: URL, context: WebContext, title: String, inlinePlaylist: String? = nil) -> [MediaCandidate] {
+    private nonisolated static func candidates(_ playlist: Playlist, url: URL, context: WebContext, title: String, inlinePlaylist: String? = nil) -> [MediaCandidate] {
         if playlist.variants.isEmpty { return [MediaCandidate(title:title,url:url,audioURL:nil,kind:"hls",quality:"源画质",context:context,inlinePlaylist:inlinePlaylist)] }
         return playlist.variants.prefix(16).flatMap { variant -> [MediaCandidate] in
             let tracks = playlist.audio.filter { $0.group == variant.audioGroup }
@@ -177,7 +239,7 @@ import WebKit
         inlineLists.add(text);
         window.webkit.messageHandlers.harborMedia.postMessage({event:'inlineHLS',playlist:text});
       };
-      const send = (raw, mime = '', media = false) => {
+      const send = (raw, mime = '', media = false, origin = 'resource') => {
         try {
           if (!raw) return;
           // Native Safari players may receive a data: HLS source; MSE players
@@ -191,10 +253,17 @@ import WebKit
           }
           const u = new URL(raw, location.href);
           if (!/^https?:$/.test(u.protocol)) return;
-          const hls = /mpegurl/i.test(mime) || /\.m3u8$/i.test(u.pathname);
-          const mp4 = /video\/mp4/i.test(mime) || /\.(mp4|m4v)$/i.test(u.pathname);
+          // Skip obvious non-content hosts (analytics/ads/telemetry): these often
+          // appear as mp4/m3u8 URLs on tracker endpoints and pollute the candidate list.
+          if (/(^|\.)(clarity\.ms|google-analytics\.com|googletagmanager\.com|doubleclick\.net|googlesyndication\.com|adservice\.google\.[a-z.]+|scorecardresearch\.com|hotjar\.com|baidu\.com\/hm\.gif|cnzz\.com|umeng\.(com|cn)|miaozhen\.com|irs01\.com|mediav\.com)$/.test(u.hostname)) return;
+          const path = u.pathname;
+          // Tiny media assets: UI icons, stickers, preview thumbnails and ad clips
+          // in ad paths. Real feature films are not 1MiB-truncated ad images.
+          if (/\/(ads?|adver|advert|banner|promo|teaser|logo|icon|favicon|loading|intro|outro|opening|ending|ending|watermark|stamp|pre-roll|post-roll|tvc|cm)\b/i.test(path)) return;
+          const hls = /mpegurl/i.test(mime) || /\.m3u8$/i.test(path);
+          const mp4 = /video\/mp4/i.test(mime) || /\.(mp4|m4v)$/i.test(path);
           if (hls || mp4 || media)
-            window.webkit.messageHandlers.harborMedia.postMessage({url:u.href,kind:hls?'hls':mp4?'mp4':'unknown'});
+            window.webkit.messageHandlers.harborMedia.postMessage({url:u.href,kind:hls?'hls':mp4?'mp4':'unknown',origin:origin});
         } catch {}
       };
       // Capture only small HLS blobs, never MSE video buffers or worker scripts.
@@ -213,17 +282,17 @@ import WebKit
           lastPageState = verification;
           window.webkit.messageHandlers.harborMedia.postMessage({event:'pageState',verification:String(verification)});
         }
-        document.querySelectorAll('video,video source').forEach(v => send(v.currentSrc || v.src, v.type || '', true));
+        document.querySelectorAll('video,video source').forEach(v => send(v.currentSrc || v.src, v.type || '', true, 'video'));
         performance.getEntriesByType('resource').forEach(r => send(r.name));
       };
       // Observe requests immediately: long-running streams need not finish before detection.
       const requestURL = value => typeof value === 'string' ? value : value instanceof URL ? value.href : value && value.url;
       const originalFetch = window.fetch;
-      window.fetch = function(...args) { send(requestURL(args[0])); return originalFetch.apply(this,args).then(r => {send(r.url,r.headers.get('content-type') || ''); return r;}); };
+      window.fetch = function(...args) { send(requestURL(args[0]),'',false,'request'); return originalFetch.apply(this,args).then(r => {send(r.url,r.headers.get('content-type') || '',false,'request'); return r;}); };
       const open = XMLHttpRequest.prototype.open;
       XMLHttpRequest.prototype.open = function(...args) {
-        send(args[1]);
-        this.addEventListener('load', () => { try {send(this.responseURL,this.getResponseHeader('content-type') || '');} catch {} });
+        send(args[1],'',false,'request');
+        this.addEventListener('load', () => { try {send(this.responseURL,this.getResponseHeader('content-type') || '',false,'request');} catch {} });
         return open.apply(this,args);
       };
       document.addEventListener('loadedmetadata',scan,true);

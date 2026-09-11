@@ -48,6 +48,36 @@ test('captures extensionless fetch by MIME', async () => {
   const f = fixture({ response: { url: 'https://cdn.test/stream', headers: { get: () => 'application/vnd.apple.mpegurl' } } });
   await f.context.fetch('/stream'); assert.equal(f.messages[0].kind, 'hls');
 });
+test('skips analytics and ad hostnames entirely', () => {
+  const f = fixture({ resources: [
+    'https://www.clarity.ms/tag/abc.mp4',
+    'https://google-analytics.com/collect?v=1&m3u8',
+    'https://ads.cnzz.com/t.png?file=/v.mp4',
+    'https://cdn.test/real.m3u8',
+  ] });
+  f.events.tick();
+  assert.equal(f.messages.length, 1);
+  assert.equal(f.messages[0].url, 'https://cdn.test/real.m3u8');
+});
+test('skips ad and ornament media paths', () => {
+  const f = fixture({ resources: [
+    'https://cdn.test/banner/logo.mp4',
+    'https://cdn.test/static/ad-stream.m3u8',
+    'https://cdn.test/promo/intro.mp4',
+    'https://cdn.test/movie/main.m3u8',
+  ] });
+  f.events.tick();
+  assert.equal(f.messages.length, 1);
+  assert.equal(f.messages[0].url, 'https://cdn.test/movie/main.m3u8');
+});
+test('tags player-driven captures with stronger origin than timeline scan', () => {
+  const f = fixture({ videos: [{ currentSrc: 'https://cdn.test/main.m3u8' }], resources: ['https://cdn.test/main.m3u8'] });
+  f.events.tick();
+  // Same URL arrives twice: video origin (rank 2) must survive, resource never downgrades it.
+  assert.equal(f.messages.filter(m => m.url === 'https://cdn.test/main.m3u8').length, 2);
+  assert.equal(f.messages[0].origin, 'video');
+  assert.equal(f.messages[1].origin, 'resource');
+});
 test('reports access verification and clears state once the player loads', () => {
   const f = fixture({title:'访问验证',text:'Cap 验证 点击以确认你是真人 点击完成验证'});
   f.events.tick(); assert.equal(f.events.pageState.verification,'true');
