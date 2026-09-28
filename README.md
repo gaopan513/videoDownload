@@ -4,7 +4,7 @@
 
 ## iPhone 原型（独立构建）
 
-iOS 17+ 原型与 GitHub Actions 云构建流程已跑通。最新已验证可安装的 IPA 仍为 0.2.2(7)（`release/ios/0.2.2/StreamHarbor-iOS-unsigned.ipa`）；1.0.0 源码包含随后完成的解析性能优化和候选过滤，尚未完成云构建、三站真机验收与下载提速复测。版本记录见 [mobile/README.md](mobile/README.md)。Windows 版继续使用下方流程。
+iOS 17+ 原型与 GitHub Actions 云构建流程已跑通。最新已验证可安装的 IPA 为 0.2.2(9)（`release/ios/0.2.2-9/StreamHarbor-iOS-unsigned.ipa`）；1.0.0 仅调整版本标记并整合项目源码，尚未重新构建 IPA。三站真机验收与下载提速复测仍未完成，版本记录见 [mobile/README.md](mobile/README.md)。Windows 版继续使用下方流程。
 
 Windows x64 中文网页视频下载工具。粘贴网页、MP4 或 M3U8 地址，解析资源，选择清晰度与目录后下载。仅支持完整视频，不录制直播。
 
