@@ -1,0 +1,86 @@
+{
+  "name": "streamharbor",
+  "productName": "StreamHarbor",
+  "version": "1.0.0",
+  "description": "通用视频下载工作台",
+  "author": "StreamHarbor",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/main/main.cjs",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "vue-tsc --noEmit && vite build && node scripts/build.mjs",
+    "test": "node scripts/test.mjs",
+    "start": "electron .",
+    "package": "node scripts/package.mjs",
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "dependencies": {
+    "cheerio": "1.2.0",
+    "m3u8-parser": "7.2.0",
+    "proxy-agent": "8.0.2",
+    "vue": "3.5.42"
+  },
+  "devDependencies": {
+    "@types/node": "26.5.0",
+    "@vitejs/plugin-vue": "6.0.8",
+    "electron": "44.2.0",
+    "electron-builder": "26.15.3",
+    "esbuild": "0.28.2",
+    "ffmpeg-static": "5.3.0",
+    "ffprobe-static": "3.1.0",
+    "playwright": "1.63.0",
+    "tsx": "4.23.13",
+    "typescript": "5.9.3",
+    "vite": "8.2.2",
+    "vue-tsc": "3.3.11"
+  },
+  "build": {
+    "electronDist": "node_modules/electron/dist",
+    "appId": "local.streamharbor.desktop",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/main/*.cjs",
+      "dist/ui/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "extraResources": [
+      {
+        "from": "node_modules/ffmpeg-static/ffmpeg.exe",
+        "to": "bin/ffmpeg.exe"
+      },
+      {
+        "from": "node_modules/ffprobe-static/bin/win32/x64/ffprobe.exe",
+        "to": "bin/ffprobe.exe"
+      },
+      {
+        "from": "THIRD_PARTY.md",
+        "to": "THIRD_PARTY.md"
+      },
+      {
+        "from": "node_modules/ffmpeg-static/ffmpeg.exe.LICENSE",
+        "to": "licenses/FFmpeg.LICENSE"
+      },
+      {
+        "from": "node_modules/ffmpeg-static/ffmpeg.exe.README",
+        "to": "licenses/FFmpeg.README"
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "npmRebuild": false
+  }
+}

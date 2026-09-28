@@ -1,6 +1,6 @@
 {
   "name": "streamharbor-ios-prototype",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": { "build": "vue-tsc --noEmit && vite build", "dev": "vite --host 127.0.0.1" },

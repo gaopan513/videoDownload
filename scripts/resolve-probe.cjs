@@ -1,0 +1,4 @@
+const {app}=require('electron');const fs=require('node:fs');const path=require('node:path');
+app.setPath('userData',path.resolve('.test-data/resolve-'+Date.now()));app.on('window-all-closed',()=>{});
+process.on('uncaughtException',e=>console.error(String(e)));
+app.whenReady().then(async()=>{const {discover}=require('../dist/tests/resolver.cjs');const rows=[];for(const url of ['https://www.dushe3.app/play/356989-41-4918517.html','https://www.juzong01.me/vodplay/60791-1-1/','https://tv.time1080.xyz/play.php?source=qilin&id=27']){const t=Date.now();try{const c=await discover(url,'',AbortSignal.timeout(90000));rows.push({url,seconds:(Date.now()-t)/1000,candidates:c.map(v=>({title:v.title,kind:v.kind})),downloadVerified:false});}catch(e){rows.push({url,error:String(e),seconds:(Date.now()-t)/1000});}console.log(rows.at(-1));fs.writeFileSync('artifacts/browser-site-probes.json',JSON.stringify(rows,null,2));}app.quit();});
