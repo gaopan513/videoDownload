@@ -56,7 +56,7 @@ export async function resolveTwitter(source: string, proxy: string, signal: Abor
       const fbRes = await fetchAt(ses, fbUrl, {
         signal,
         headers: {
-          'user-agent': 'StreamHarbor/1.0 (+https://github.com/gaopan513/ios-videoDownload)',
+          'user-agent': 'StreamHarbor/1.0 (+https://github.com/gaopan513/videoDownload)',
           accept: 'application/json'
         }
       });

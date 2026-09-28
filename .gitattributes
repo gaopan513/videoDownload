@@ -3,7 +3,7 @@
 *.swift text eol=lf
 *.c text eol=lf
 *.h text eol=lf
-mobile/ios/Tests/Fixtures/*.ts binary
+ios/ios/Tests/Fixtures/*.ts binary
 *.aac binary
 *.mp4 binary
 *.bin binary

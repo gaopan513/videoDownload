@@ -13,7 +13,7 @@ except ImportError as error:
 parser = Parser(Language(tree_sitter_swift.language()))
 
 errors = []
-files = sorted((root / 'mobile' / 'ios').rglob('*.swift'))
+files = sorted((root / 'ios').rglob('*.swift'))
 for file in files:
     tree = parser.parse(file.read_bytes())
     # Iterative walk: a recursive visitor can exceed the stack on deep trees.
@@ -23,10 +23,10 @@ for file in files:
         if node.type == 'ERROR' or node.is_missing:
             errors.append(f'{file.relative_to(root)}:{node.start_point[0] + 1}:{node.start_point[1] + 1}: {node.type}')
         stack.extend(node.children)
-for file in (root / 'mobile' / 'ios' / 'App').iterdir():
+for file in (root / 'ios' / 'App').iterdir():
     if file.suffix in ('.plist', '.xcprivacy'):
         plistlib.loads(file.read_bytes())
-fixtures = root / 'mobile' / 'ios' / 'Tests' / 'Fixtures'
+fixtures = root / 'ios' / 'Tests' / 'Fixtures'
 for name, digest in json.loads((fixtures / 'sha256.json').read_text()).items():
     assert hashlib.sha256((fixtures / name).read_bytes()).hexdigest() == digest, name
 if errors:

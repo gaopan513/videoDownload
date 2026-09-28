@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { createCipheriv, createHash } from 'node:crypto';
 import path from 'node:path';
 import ffmpeg from 'ffmpeg-static';
-const out = path.resolve('mobile/ios/Tests/Fixtures');
+const out = path.resolve('ios/Tests/Fixtures');
 mkdirSync(out,{recursive:true});
 const run = args => { const result = spawnSync(ffmpeg,['-hide_banner','-loglevel','error','-y',...args],{stdio:'inherit'}); if(result.error) throw result.error; if(result.status !== 0) throw new Error('Fixture generation failed'); };
 run(['-f','lavfi','-i','testsrc2=size=128x72:rate=12','-t','2','-an','-c:v','libx264','-pix_fmt','yuv420p','-f','mpegts',path.join(out,'video.ts')]);

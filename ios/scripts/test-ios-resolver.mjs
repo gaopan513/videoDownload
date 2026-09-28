@@ -3,7 +3,7 @@ import vm from 'node:vm';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-const swift = readFileSync(new URL('../mobile/ios/Native/Resolver.swift', import.meta.url), 'utf8');
+const swift = readFileSync(new URL('../ios/Native/Resolver.swift', import.meta.url), 'utf8');
 const script = swift.split('static let script = #"""')[1].split('"""#')[0];
 function fixture({ videos = [], resources = [], response, title = '', text = '' } = {}) {
   const messages = [], events = {};

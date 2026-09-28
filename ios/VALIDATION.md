@@ -8,7 +8,7 @@
 
 以下为历史构建记录：
 
-构建：https://github.com/gaopan513/ios-videoDownload/actions/runs/34319138718
+构建：https://github.com/gaopan513/videoDownload/actions/runs/34319138718
 源码提交：4eb22587da78342119374d6ac218b3dfcaca8c98。7 项核心测试及 4 项模拟器原生测试通过，iPhone arm64 Release 归档、Bundle 校验通过。
 本地核验：下载包 SHA-256 与 GitHub digest 一致；IPA ZIP 完整、arm64、最低 iOS 17.0、Web 资源存在；IPA SHA-256 与随包校验文件一致。
 IPA SHA-256：30f56bef61004086b3d244a8a088166c19700c674b93a6cbde38937cca0d8673。

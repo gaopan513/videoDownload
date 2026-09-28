@@ -32,8 +32,8 @@ targets:
         INFOPLIST_FILE: App/Info.plist
         TARGETED_DEVICE_FAMILY: '1'
         SWIFT_OBJC_BRIDGING_HEADER: Native/MediaBridge.h
-        HEADER_SEARCH_PATHS: '$(inherited) $(PROJECT_DIR)/../../.tools/ios-media/include'
-        LIBRARY_SEARCH_PATHS: '$(inherited) $(PROJECT_DIR)/../../.tools/ios-media/$(PLATFORM_NAME)/lib'
+        HEADER_SEARCH_PATHS: '$(inherited) $(PROJECT_DIR)/../.tools/ios-media/include'
+        LIBRARY_SEARCH_PATHS: '$(inherited) $(PROJECT_DIR)/../.tools/ios-media/$(PLATFORM_NAME)/lib'
         OTHER_LDFLAGS: '$(inherited) -lavformat -lavcodec -lavfilter -lavutil -lswresample -lswscale -ldav1d -lz -lbz2 -liconv'
         GENERATE_INFOPLIST_FILE: NO
     dependencies:

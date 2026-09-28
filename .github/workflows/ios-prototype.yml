@@ -12,6 +12,9 @@ jobs:
     timeout-minutes: 90
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+    defaults:
+      run:
+        working-directory: ios
     steps:
       - uses: actions/checkout@v4
       - name: Check shell script line endings
@@ -25,26 +28,26 @@ jobs:
         with:
           node-version: '24.19.0'
           cache: npm
-          cache-dependency-path: mobile/package-lock.json
+          cache-dependency-path: ios/package-lock.json
       - name: Build mobile UI
         run: |
-          npm ci --prefix mobile
-          npm run build --prefix mobile
+          npm ci
+          npm run build
           node --test scripts/test-ios-resolver.mjs
           python3 - <<'PY'
           import hashlib, json
           from pathlib import Path
-          fixtures = Path('mobile/ios/Tests/Fixtures')
+          fixtures = Path('ios/Tests/Fixtures')
           for name, expected in json.loads((fixtures / 'sha256.json').read_text()).items():
               assert hashlib.sha256((fixtures / name).read_bytes()).hexdigest() == expected, name
           PY
       - name: Test HLS parser and cookie boundaries
-        run: swift test --package-path mobile/ios/Core
+        run: swift test --package-path ios/Core
       - uses: actions/cache@v4
         id: media
         with:
-          path: .tools/ios-media
-          key: ios-media-${{ runner.arch }}-xcode26.3-${{ hashFiles('scripts/build-ios-media.sh') }}
+          path: ios/.tools/ios-media
+          key: ios-media-${{ runner.arch }}-xcode26.3-${{ hashFiles('ios/scripts/build-ios-media.sh') }}
       - name: Build pinned FFmpeg libraries
         if: steps.media.outputs.cache-hit != 'true'
         run: bash scripts/build-ios-media.sh
@@ -55,11 +58,11 @@ jobs:
       - name: Test native media and archive unsigned IPA
         run: bash scripts/package-ios.sh
       - name: Upload IPA and installation material
-        if: ${{ always() && hashFiles('release/ios/StreamHarbor-iOS-unsigned.ipa') != '' }}
+        if: ${{ always() && hashFiles('ios/release/StreamHarbor-iOS-unsigned.ipa') != '' }}
         uses: actions/upload-artifact@v4
         with:
           name: StreamHarbor-iOS-prototype
-          path: release/ios/
+          path: ios/release/
           if-no-files-found: error
           retention-days: 14
       - name: Upload build and test diagnostics
@@ -68,8 +71,8 @@ jobs:
         with:
           name: ios-build-diagnostics
           path: |
-            .tools/ios-build/*.log
-            .tools/ios-build/*.xcresult
-            .tools/ios-media/*/build/*-output.txt
-            .tools/ios-media/*/dav1d-build/meson-logs/*.txt
+            ios/.tools/ios-build/*.log
+            ios/.tools/ios-build/*.xcresult
+            ios/.tools/ios-media/*/build/*-output.txt
+            ios/.tools/ios-media/*/dav1d-build/meson-logs/*.txt
           retention-days: 7

@@ -1,6 +1,6 @@
 # StreamHarbor iPhone 原型
 
-当前源码版本为 1.0.0（构建号 10），包含下述 0.2.2(8)(9) 改动。0.2.2(9) 已通过云构建，IPA 位于 `release/ios/0.2.2-9/StreamHarbor-iOS-unsigned.ipa`；1.0.0 尚未重新构建，真机验收仍待完成。
+当前源码版本为 1.0.0（构建号 10），包含下述 0.2.2(8)(9) 改动。0.2.2(9) 已通过云构建，其历史 IPA 位于仓库根目录的 `release/ios/0.2.2-9/StreamHarbor-iOS-unsigned.ipa`（仅本地产物）；1.0.0 尚未重新构建，真机验收仍待完成。本目录内运行下述开发命令。
 
 ## 0.2.2 (9) 候选垃圾资源过滤（2026-09-11，已上传并构建）
 
@@ -23,7 +23,7 @@
 
 ## 0.2.2 (7) 下载提速（已上传并云构建成功，2026-09-11）
 
-历史 0.2.2(7) 安装产物（`release/ios/0.2.2/StreamHarbor-iOS-unsigned.ipa`，7,345,997 字节，SHA256 d3eda0c5…8c1731）。
+历史 0.2.2(7) 安装产物（仓库根目录的 `release/ios/0.2.2/StreamHarbor-iOS-unsigned.ipa`，7,345,997 字节，SHA256 d3eda0c5…8c1731）。
 
 本交付同时包含 0.2.2(6) 的修复：识别窗口在尚无媒体时保留当前页面，提示完成验证或播放后再识别，同次运行中重试保留隔离的临时网页会话；HLS 保留服务器声明零时长的分片（juok 样本第 654 片声明 0 但实际含音视频）；HLS 前台使用普通 URLSession、退后台由固定后台会话接管，切换仅重启未完成分片；下载显示接收量、平均速度、30 秒无字节等待提示与失败主机/网络错误码。
 
@@ -50,7 +50,7 @@
 
 包含 0.1.2 的不连续 HLS 时间轴处理与 HTTP 404 预检修复。拾光已观测到服务器分片返回 404，编码改造不能恢复缺失分片。毒舌边界两片在 Windows 封装/解码通过，整片与 iPhone 未通过验收。
 
-当时上一版已成功构建的是 [0.1.1 (2)](https://github.com/gaopan513/ios-videoDownload/actions/runs/34354965766)，其 IPA 不包含本次改造。当前 Windows 本地前端构建、6 项 JS 回归和 Swift 语法检查通过；本轮新增原生编码矩阵/转码测试仍待 Xcode，尚无 0.2.0 IPA。
+当时上一版已成功构建的是 [0.1.1 (2)](https://github.com/gaopan513/videoDownload/actions/runs/34354965766)，其 IPA 不包含本次改造。当前 Windows 本地前端构建、6 项 JS 回归和 Swift 语法检查通过；本轮新增原生编码矩阵/转码测试仍待 Xcode，尚无 0.2.0 IPA。
 
 最低支持 iOS 17，Windows 版独立保留。
 
@@ -66,14 +66,14 @@
 
 ## GitHub 云构建
 
-1. 将项目源码上传到你自己的私有仓库，保留根目录 `.github/workflows/ios-prototype.yml`、`mobile/` 和 `scripts/`。不上传 `node_modules`、`.tools`、`release`、`.test-data` 或真实站点会话。
+1. 仓库根目录保留 `.github/workflows/ios-prototype.yml` 与 `ios/`；Windows 桌面端源码单独位于 `windows/`。不要上传 `node_modules`、`.tools`、`release`、`.test-data` 或真实站点会话。
 2. 在仓库 Actions 中启用工作流，选择 **iOS prototype IPA → Run workflow**。
 3. 工作流使用 macOS 15 / Xcode 26.3、Node 24.19.0、Capacitor 8.0.0、XcodeGen 2.44.1、FFmpeg 7.1.1、dav1d 1.5.1。依赖版本及媒体库源码 SHA-256 固定，未使用 Windows EXE 或 FFmpegKit 下载包。
 4. 工作流先测试 HLS 核心，再构建媒体库、运行模拟器原生测试，最后归档 iPhone arm64。任何步骤失败都不应将该次运行视为可用安装包。
 5. 成功后在 Artifacts 下载 `StreamHarbor-iOS-prototype`，内有 IPA、SHA256SUMS、安装说明、验证表、媒体源码和重链接材料。云构建可能消耗你的 GitHub Actions 额度。
 6. 失败时下载 `ios-build-diagnostics`；这些诊断只包含构建和可控样本测试，不应加入个人站点 Cookie 或下载链接。
 
-云构建仓库：https://github.com/gaopan513/ios-videoDownload 。在 Actions 页面查看实际构建状态；只有成功运行产生的 artifact 才包含 IPA。GitHub 工作流不需要 Apple ID、开发者证书或密码。
+云构建仓库：https://github.com/gaopan513/videoDownload 。在 Actions 页面查看实际构建状态；只有成功运行产生的 artifact 才包含 IPA。GitHub 工作流不需要 Apple ID、开发者证书或密码。
 
 ## Windows 侧载
 
@@ -86,14 +86,14 @@
 Windows 仅能构建前端、生成测试夹具和运行桌面回归；iOS 原生编译仍需要 macOS/Xcode。
 
 ```sh
-npm ci --prefix mobile
-npm run build --prefix mobile
-npm run dev --prefix mobile
+npm ci
+npm run build
+npm run dev
 ```
 
-浏览器中显示预览提示，原生下载按钮禁用；这不是网页下载器。Windows 原有 `npm test`、`npm run build` 不改用移动端入口。
+浏览器中显示预览提示，原生下载按钮禁用；这不是网页下载器。Windows 命令在同级的 `windows/` 目录运行。
 
-macOS 构建顺序见工作流。合成媒体夹具已随源码提供；修改夹具时可在已准备好 FFmpeg 的 Windows 项目根运行 `node scripts/ios-fixtures.mjs` 重新生成并提交校验值。
+macOS 构建顺序见工作流。合成媒体夹具已随源码提供；修改夹具时可在本目录准备好 FFmpeg 后运行 `node scripts/ios-fixtures.mjs` 重新生成并提交校验值。
 
 ## 工程边界
 

@@ -1,5 +1,10 @@
 # Progress
 
+## 2026-09-28：仓库更名与目录拆分
+- 已确认目标结构为仓库根目录下 `ios/` 与 `windows/`。本地已移动两端源码、脚本与桌面依赖缓存；根目录保留共享文件、历史产物和计划记录。远端尚未修改。
+- 已更新 iOS Actions 工作目录、媒体/XcodeGen 缓存路径、打包路径与原生库搜索路径；Windows 构建入口保持子目录相对路径。Windows 30 项、iOS 解析 10 项测试及两端类型/前端构建通过；Windows 主进程构建、iOS Swift 语法/夹具哈希与两端源码包验证通过。
+
+
 ## 0.2.2 (9) 已上传并云构建成功（2026-09-11）
 - 提交链：24f9d20a（8+9 两轮 6 文件）→ 7c39e5c7（static 裸调用修复）→ 1901a807（expandDetected→expand）→ c2328549（MainActor 状态先拷贝再进 nonisolated 闭包）。main 最终 c2328549，全部 blob 与本地核验一致（60/60，根 README 仍保留远端 iOS 版）。
 - 三次构建失败均为本地检查器盲区（tree-sitter 不查语义）：①实例方法内裸调用同类 static 成员；②引用了不存在的 expandDetected；③捕获列表捕获 @MainActor 属性引用后在 nonisolated 闭包中读取。已全部修复，并新增本地脚本化成员引用审计。
