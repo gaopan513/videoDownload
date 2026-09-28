@@ -5,6 +5,9 @@
 - iOS 构建工作流依赖原 `mobile/` 与根 `scripts/`；桌面构建脚本以当前工作目录为项目根。拆分后两端脚本应各自从其子目录运行，根目录保留仓库级工作流与总览。
 - 当前两端源码、依赖缓存和脚本已拆分；旧 `release/` 与 `.tools/` 留在本地根目录作为历史产物，不进入 GitHub。新版本输出分别写入 `ios/release/` 和 `windows/release/`。
 - 本地复核：Windows 30 项测试、主进程与前端构建、类型检查通过；iOS 解析 10 项测试、类型/前端构建、14 个 Swift 语法树、14 个夹具哈希、分段算术通过。两端源码归档分别通过 ZIP 校验。Swift 编译仍需云端 Xcode。
+- GitHub 仓库保持同一 ID `1362034044` 与私有可见性，更名后地址为 `gaopan513/videoDownload`。`main` 0a3494a 的根目录可见 `ios/` 与 `windows/`；8 个代表性远端文件的 Git blob SHA 与本地一致。
+- 新路径的 Actions run 36446663138 已通过 checkout、脚本换行、Node 设置、前端/解析与 Swift Core 测试；媒体库因缓存键路径变化正在重新构建。
+- run 36446663138 最终 success，原生测试与 iPhone IPA 归档步骤通过。`StreamHarbor-iOS-prototype` artifact ID 10981395126，26,631,319 字节，GitHub digest `sha256:52a5968ff3ff739a5c7f399a5d4749c9f9aa9d5cc8926efdc602abff0cc84447`，对应源码提交 0a3494a。构建成功不等于真机目标站整片下载通过。
 
 
 ## 0.2.2(9) 上传构建过程与检查器盲区（2026-09-11）

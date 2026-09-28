@@ -1,6 +1,6 @@
 # StreamHarbor iPhone 原型
 
-当前源码版本为 1.0.0（构建号 10），包含下述 0.2.2(8)(9) 改动。0.2.2(9) 已通过云构建，其历史 IPA 位于仓库根目录的 `release/ios/0.2.2-9/StreamHarbor-iOS-unsigned.ipa`（仅本地产物）；1.0.0 尚未重新构建，真机验收仍待完成。本目录内运行下述开发命令。
+当前源码版本为 1.0.0（构建号 10），包含下述 0.2.2(8)(9) 改动。[Actions run 36446663138](https://github.com/gaopan513/videoDownload/actions/runs/36446663138) 已通过云端测试和 IPA 归档，`StreamHarbor-iOS-prototype` artifact 限时提供安装材料；IPA 仍待真机验收。历史 0.2.2(9) IPA 位于仓库根目录的 `release/ios/0.2.2-9/StreamHarbor-iOS-unsigned.ipa`（仅本地产物）。本目录内运行下述开发命令。
 
 ## 0.2.2 (9) 候选垃圾资源过滤（2026-09-11，已上传并构建）
 
