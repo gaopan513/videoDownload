@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue';
+import appIcon from './assets/spiderweb.png';
 import { harbor, native, type Candidate, type TaskView, type OutputMode } from './bridge';
 const outputMode = ref<OutputMode>('mp4'), deep = ref(false), retryModes = ref<Record<string,OutputMode>>({});
 const modes: { value: OutputMode; label: string }[] = [{value:'mp4',label:'无损 MP4'}, {value:'mkv',label:'无损 MKV'}, {value:'transcode',label:'转码 MP4（H.264/AAC）'}];
@@ -48,7 +49,7 @@ onUnmounted(() => dispose?.());
 </script>
 <template>
   <main>
-    <header><span class="wordmark">StreamHarbor <b>↓</b></span></header>
+    <header><span class="wordmark"><img :src="appIcon" alt="" width="36" height="36">StreamHarbor</span></header>
     <h1>把视频带走。</h1><p class="intro">解析链接，下载到手机，再保存到文件或相册。</p>
     <p v-if="!native" class="notice">当前是界面预览。解析和下载需要在 iPhone 安装包中使用。</p>
     <section class="panel">

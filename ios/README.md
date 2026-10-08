@@ -1,6 +1,12 @@
 # StreamHarbor iPhone 原型
 
-当前源码版本为 1.0.0（构建号 10），包含下述 0.2.2(8)(9) 改动。[Actions run 36446663138](https://github.com/gaopan513/videoDownload/actions/runs/36446663138) 已通过云端测试和 IPA 归档，`StreamHarbor-iOS-prototype` artifact 限时提供安装材料；IPA 仍待真机验收。历史 0.2.2(9) IPA 位于仓库根目录的 `release/ios/0.2.2-9/StreamHarbor-iOS-unsigned.ipa`（仅本地产物）。本目录内运行下述开发命令。
+当前源码版本为 1.0.0（构建号 11），包含蜘蛛网视频图标及下述 0.2.2(8)(9) 改动。上一构建号 10 的 [Actions run 36446663138](https://github.com/gaopan513/videoDownload/actions/runs/36446663138) 已通过云端测试和 IPA 归档；该历史包不含本次新图标。新版 IPA 由本次 GitHub Actions 工作流生成，`StreamHarbor-iOS-prototype` artifact 限时提供安装材料。历史 0.2.2(9) IPA 位于仓库根目录的 `release/ios/0.2.2-9/StreamHarbor-iOS-unsigned.ipa`（仅本地产物）。本目录内运行下述开发命令。
+
+## 蜘蛛网图标（2026-10-08）
+
+AppIcon 和页面顶部品牌标识统一为蜘蛛网包围播放符号。`ios/App/Assets.xcassets/AppIcon.appiconset` 包含 iPhone 桌面、搜索、设置及 1024 像素 App Store 的不透明 RGB PNG。工程指定 `AppIcon`，打包时检查编译后的资产目录、Info.plist 图标声明和图标文件，防止只替换前端而漏掉手机桌面图标。
+
+构建号递增为 11，应用标识保持 `local.streamharbor.ios`；使用新版 IPA 更新已有应用。源码资源通过仓库根目录 `scripts/generate-app-icons.ps1 -Target iOS` 从已确认的生成原图导出。手机图标和更新安装仍需真机确认。
 
 ## 0.2.2 (9) 候选垃圾资源过滤（2026-09-11，已上传并构建）
 
