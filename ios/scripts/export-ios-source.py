@@ -12,7 +12,8 @@ excluded = {'node_modules', 'dist', 'public', '.build', '.swiftpm', '__pycache__
 files = [p for p in root.rglob('*') if p.is_file()
          and not any(part in excluded or part.endswith('.xcodeproj') for part in p.relative_to(root).parts)]
 files.extend(repository / name for name in (
-    '.github/workflows/ios-prototype.yml', '.gitattributes', '.gitignore', 'LICENSE'))
+    '.github/workflows/ios-prototype.yml', '.gitattributes', '.gitignore', 'LICENSE',
+    'scripts/generate-app-icons.ps1', 'extension/branding/spiderweb-master.png'))
 with ZipFile(archive, 'w', compression=ZIP_DEFLATED) as bundle:
     for file in sorted(files):
         bundle.write(file, file.relative_to(repository).as_posix())
