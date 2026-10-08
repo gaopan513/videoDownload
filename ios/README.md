@@ -1,6 +1,6 @@
 # StreamHarbor iPhone 原型
 
-当前源码版本为 1.0.0（构建号 11），包含蜘蛛网视频图标及下述 0.2.2(8)(9) 改动。上一构建号 10 的 [Actions run 36446663138](https://github.com/gaopan513/videoDownload/actions/runs/36446663138) 已通过云端测试和 IPA 归档；该历史包不含本次新图标。新版 IPA 由本次 GitHub Actions 工作流生成，`StreamHarbor-iOS-prototype` artifact 限时提供安装材料。历史 0.2.2(9) IPA 位于仓库根目录的 `release/ios/0.2.2-9/StreamHarbor-iOS-unsigned.ipa`（仅本地产物）。本目录内运行下述开发命令。
+当前源码版本为 1.0.0（构建号 11），包含蜘蛛网视频图标及下述 0.2.2(8)(9) 改动。上一构建号 10 的 [Actions run 36446663138](https://github.com/gaopan513/videoDownload/actions/runs/36446663138) 已通过云端测试和 IPA 归档；该历史包不含本次新图标。新版 IPA 已由 [Actions run 37761235493](https://github.com/gaopan513/videoDownload/actions/runs/37761235493) 成功构建，22 项核心和 16 项原生测试通过；`StreamHarbor-iOS-prototype` artifact 限时提供安装材料。本地下载在 `release/spiderweb-20261008/StreamHarbor-iOS-unsigned.ipa`。历史 0.2.2(9) IPA 位于仓库根目录的 `release/ios/0.2.2-9/StreamHarbor-iOS-unsigned.ipa`（仅本地产物）。本目录内运行下述开发命令。
 
 ## 蜘蛛网图标（2026-10-08）
 

@@ -55,3 +55,13 @@ Swift 语法树检查不等同于 Swift 编译；原生测试代码已提供，�
 ## 阶段二
 
 尚未启动；等三站真机门槛通过。
+
+
+## 2026-10-08 蜘蛛网图标 1.0.0 (11)
+
+- GitHub Actions run [37761235493](https://github.com/gaopan513/videoDownload/actions/runs/37761235493) 成功，应用提交 5d9c0376f0959bc2e6c5bf0e6ab2bb850624c107；22 项核心和16项原生测试通过，arm64 IPA归档成功。
+- AppIcon资源集包含iPhone所需9个槽位；图像尺寸及不透明RGB检查通过。编译后Info.plist声明AppIcon，包含Assets.car和AppIcon60x60@2x.png。Xcode其余图标变体位于编译资产目录，不能假定每种尺寸都以独立PNG存放。
+- 本地IPA ZIP CRC、云端SHA256、应用标识和构建号11通过。编译后的120×120 CgBI PNG经无损解码，与源图标逐像素一致；IPA中前端品牌PNG也与源文件一致。
+- 下载文件 `release/spiderweb-20261008/StreamHarbor-iOS-unsigned.ipa`，8524659字节，SHA256 `9958fedadb23ac9b74e6fd49682c6a7b0214a108280c7182a2990d30b8bf0ba8`。
+- 前端390×844布局中品牌图标解码为256×256、显示为36×36。证据 `release/spiderweb-20261008/icon-validation.json`、`mobile-icon-preview.png`、`compiled-app-icon.png`。
+- 尚未在真实iPhone签名更新或检查桌面图标；安装按README中的既有侧载流程进行。此次云端测试不替代真实视频下载/全片解码验收。
