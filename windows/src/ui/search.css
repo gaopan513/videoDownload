@@ -1,0 +1,11 @@
+.discovery-head,.discovery-detail,.site-results,.web-search{padding:22px;margin-bottom:16px}
+.discover-search,.site-filters,.line-tabs,.episode-tools,.site-import,.result-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.discover-search input{flex:1;min-width:180px;border:1px solid var(--line);border-radius:7px;padding:11px}
+.site-filters{margin-top:16px}.site-filters label,.episode-grid label{font-size:12px;color:#526d82;display:flex;gap:6px;align-items:center}
+.discovery-head .hint,.web-search .hint{margin:10px 0 0}.site-results{margin-top:16px}
+.result-row{display:flex;align-items:center;gap:14px;border-top:1px solid var(--line);padding:12px 0}.result-row img{width:48px;height:66px;object-fit:cover;border-radius:4px}
+.cover-placeholder{width:48px;height:66px;flex:none;border-radius:4px;background:#e8eef5}.result-entry .discovery-detail{padding:18px;margin:0 0 12px 62px;border:1px solid var(--line);border-radius:8px;background:#f8fbff}
+.result-row>div{flex:1;min-width:0}.result-row strong,.result-row small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.result-row small{color:var(--muted);font-size:11px;margin-top:6px}
+.result-actions{margin-top:12px}.line-tabs button{padding:9px 12px;border-radius:6px;background:#edf3f8}.line-tabs button.active{background:#dcebf9;color:var(--blue)}
+.episode-tools{margin:18px 0}.episode-tools span{font-size:11px;color:var(--muted)}.episode-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(125px,1fr));gap:10px;max-height:310px;overflow:auto}.episode-grid label{padding:9px;border:1px solid var(--line);border-radius:6px}
+.site-edit{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin:12px 0}.site-edit input:not([type=checkbox]){padding:9px;border:1px solid var(--line);border-radius:6px;min-width:130px;flex:1}.site-edit select{padding:9px;border:1px solid var(--line);border-radius:6px}.site-edit label{display:flex;align-items:center;gap:4px;font-size:11px}.import-row{display:flex;justify-content:space-between;gap:10px;padding:10px 0;border-top:1px solid var(--line);font-size:12px}.import-row label{white-space:nowrap}

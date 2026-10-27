@@ -1,7 +1,7 @@
 {
   "name": "streamharbor",
   "productName": "StreamHarbor",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "通用视频下载工作台",
   "author": "StreamHarbor",
   "license": "MIT",
@@ -16,6 +16,7 @@
     "smoke": "node scripts/smoke.mjs"
   },
   "dependencies": {
+    "@ghostery/adblocker-electron": "2.18.2",
     "cheerio": "1.2.0",
     "m3u8-parser": "7.2.0",
     "proxy-agent": "8.0.2",
@@ -49,12 +50,20 @@
     "asar": true,
     "extraResources": [
       {
+        "from": "build/spiderweb.ico",
+        "to": "icons/spiderweb.ico"
+      },
+      {
         "from": "node_modules/ffmpeg-static/ffmpeg.exe",
         "to": "bin/ffmpeg.exe"
       },
       {
         "from": "node_modules/ffprobe-static/bin/win32/x64/ffprobe.exe",
         "to": "bin/ffprobe.exe"
+      },
+      {
+        "from": "build/yt-dlp.exe",
+        "to": "bin/yt-dlp.exe"
       },
       {
         "from": "THIRD_PARTY.md",
@@ -74,9 +83,12 @@
         "nsis",
         "portable"
       ],
-      "signAndEditExecutable": false
+      "icon": "build/spiderweb.ico",
+      "signExecutable": false
     },
     "nsis": {
+      "installerIcon": "build/spiderweb.ico",
+      "uninstallerIcon": "build/spiderweb.ico",
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true

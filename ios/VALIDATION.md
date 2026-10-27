@@ -1,20 +1,23 @@
 # iOS 原型验收记录
 
-状态：**0.2.1 (5) 本地候选：修复本地HLS后缀、清理验收界面、优化下载调度；新增回归与IPA待云端验证，真机速度未测。**
+当前源码与本地 IPA 为 **1.0.0（构建号 11）**。2026-10-08 云端 22 项核心、16 项模拟器原生测试及 arm64 归档通过；目标站点整片下载、锁屏/前后台恢复、真机速度、侧载更新和桌面图标仍待 iPhone 验收。
 
-本轮自动测试新增：MP4 4 种视频/5 种音频编码组合保留与完整解码、VP9/Opus 无损 MKV、VP9/Opus 转 H.264/AAC 及音画时长、旧记录迁移与改变格式重试的持久化回滚。均为合成夹具，不能替代真实站点验证。
+2026-10-09 核对源码、工作流、已保存云构建日志和本地产物。此次为文档核对，没有重新执行云构建或真机测试。当前安装/使用入口见 [README.md](README.md)。
 
-真机补测：同一资源分别选择 MP4、MKV 和转码；在文件应用或兼容播放器检查开头/中段/结尾、音画同步；确认失败重试改变格式不重复下载已完成分片。长片转码性能和相册兼容性需实测。
+## 2026-10-08 蜘蛛网图标 1.0.0 (11)
 
-以下为历史构建记录：
+- GitHub Actions run [37761235493](https://github.com/gaopan513/videoDownload/actions/runs/37761235493) 成功，应用提交 5d9c0376f0959bc2e6c5bf0e6ab2bb850624c107；22 项核心和16项原生测试通过，arm64 IPA归档成功。
+- AppIcon资源集包含iPhone所需9个槽位；图像尺寸及不透明RGB检查通过。编译后Info.plist声明AppIcon，包含Assets.car和AppIcon60x60@2x.png。Xcode其余图标变体位于编译资产目录，不能假定每种尺寸都以独立PNG存放。
+- 本地IPA ZIP CRC、云端SHA256、应用标识和构建号11通过。编译后的120×120 CgBI PNG经无损解码，与源图标逐像素一致；IPA中前端品牌PNG也与源文件一致。
+- 下载文件 `release/spiderweb-20261008/StreamHarbor-iOS-unsigned.ipa`，8524659字节，SHA256 `9958fedadb23ac9b74e6fd49682c6a7b0214a108280c7182a2990d30b8bf0ba8`。
+- 前端390×844布局中品牌图标解码为256×256、显示为36×36。证据 `release/spiderweb-20261008/icon-validation.json`、`mobile-icon-preview.png`、`compiled-app-icon.png`。
+- 尚未在真实iPhone签名更新或检查桌面图标；安装按README中的既有侧载流程进行。此次云端测试不替代真实视频下载/全片解码验收。
 
-构建：https://github.com/gaopan513/videoDownload/actions/runs/34319138718
-源码提交：4eb22587da78342119374d6ac218b3dfcaca8c98。7 项核心测试及 4 项模拟器原生测试通过，iPhone arm64 Release 归档、Bundle 校验通过。
-本地核验：下载包 SHA-256 与 GitHub digest 一致；IPA ZIP 完整、arm64、最低 iOS 17.0、Web 资源存在；IPA SHA-256 与随包校验文件一致。
-IPA SHA-256：30f56bef61004086b3d244a8a088166c19700c674b93a6cbde38937cca0d8673。
+## 已完成的自动化与边界
 
-本地已完成：移动端与 Windows 类型检查、两端 Vue 生产构建、Windows 主进程构建、15 项桌面核心回归。
-Swift 语法树检查不等同于 Swift 编译；原生测试代码已提供，必须由 GitHub Actions 或 Mac 执行。
+22 项核心测试包含 HLS/独立音轨、相对地址、字节范围、IV/密钥轮换、零时长分片、不连续时间轴、Cookie 边界、下载调度、后台完成和 MP4 分段计划。16 项原生测试包含 AES、TS/fMP4、MP4 编码矩阵、VP9/Opus MKV/转码、媒体解码校验、加密任务记录，以及删除历史记录时的持久化回滚与输出文件保留。测试使用合成夹具。
+
+已保存日志见 [cloud-build-evidence.txt](release/spiderweb-20261008/cloud-build-evidence.txt)，图标/IPA 核验见 [icon-validation.json](release/spiderweb-20261008/icon-validation.json)。Swift 语法树检查不能代替编译；本版 Xcode 编译和模拟器测试已有云端成功证据，不能继续标记为“等待 Mac 验证”。
 
 ## 三站门槛
 
@@ -27,7 +30,7 @@ Swift 语法树检查不等同于 Swift 编译；原生测试代码已提供，�
 | 拾光 | https://tv.time1080.xyz/play.php?source=qilin&id=27 | 未测 | 未测 | 未测 | 未测 | 待验证 |
 | 拾光 | 第二条：从站内正常导航选不同影片，填入实际链接 | 未测 | 未测 | 未测 | 未测 | 未选择 |
 
-历史 Windows 记录仅证明第一条样本的资源识别，不证明整片下载，不证明当前站点仍可用。
+这张表记录 iPhone 目标样本门槛，仍未取得六个样本的完整真机验收。Windows 毒舌另有整片下载成功记录，见 [桌面验收报告](../windows/VALIDATION.md)；不能代替本表的 iPhone 验收，也不能证明历史样本网址现在仍可用。
 
 每个样本记录：测试日期、iPhone 型号、iOS 版本、IPA 校验值、网络类型、是否需要手动播放、实际清晰度与音轨、播放页时长、输出时长和文件大小。不要记录 Cookie、密钥或含签名参数的媒体地址。
 
@@ -48,20 +51,16 @@ Swift 语法树检查不等同于 Swift 编译；原生测试代码已提供，�
 - iOS 原生测试：AES 已知向量、错误密钥、TS 与独立音轨封装、接受 MPEG-4 Part 2（0.2.0 起）、任务记录加密。
 - 尚需补充原生端到端故障注入：后台重定向认证、真正磁盘耗尽、系统终止后的任务重连、长 HLS 与复杂站点请求。桌面测试不代替这些检查。
 - 后台会话不会调用重定向代理。原型使用私有 Cookie store，由 URLSession 按域/路径处理 Cookie，重启时从加密任务记录恢复；必须在真机验证后台守护进程中的 Cookie 行为。
-- 每任务最多预提交24片，低于8片补齐；每主机6连接、最多2个活动任务。分片哈希移出主线程，减少重复整表落盘，网络进度限频250ms。5项核心调度/后台完成回归待Mac运行；20分钟锁屏、取消/暂停、断网恢复和同源耗时对比仍待真机，不宣称加速倍数。
+- 每任务最多预提交24片，低于8片补齐；每主机6连接、最多2个活动任务。分片哈希移出主线程，减少重复整表落盘，网络进度限频250ms。调度/后台完成回归已随构建号11核心测试通过；20分钟锁屏、取消/暂停、断网恢复和同源耗时对比仍待真机，不宣称加速倍数。
 - 进程重启后，已有部分分片的 HLS 先恢复为暂停，用户点击继续时重新校验播放列表和密钥；不在身份未确认时追加下载。
-- 原型暂拒绝 HLS DISCONTINUITY、SESSION-KEY 和 GAP；如三站需要这些能力，应在第一阶段解决或重新评估，不将其静默归为已支持。
+- 当前支持 HLS DISCONTINUITY，并有本地播放列表重建回归；仍拒绝 SESSION-KEY 和 GAP，不能恢复服务器实际缺失的分片。
 
 ## 阶段二
 
 尚未启动；等三站真机门槛通过。
 
+## 历史构建记录
 
-## 2026-10-08 蜘蛛网图标 1.0.0 (11)
+历史初始原型 [run 34319138718](https://github.com/gaopan513/videoDownload/actions/runs/34319138718)，提交 4eb22587da78342119374d6ac218b3dfcaca8c98，7 项核心和 4 项模拟器原生测试、arm64 归档及 Bundle 校验通过。历史 IPA SHA-256：30f56bef61004086b3d244a8a088166c19700c674b93a6cbde38937cca0d8673。
 
-- GitHub Actions run [37761235493](https://github.com/gaopan513/videoDownload/actions/runs/37761235493) 成功，应用提交 5d9c0376f0959bc2e6c5bf0e6ab2bb850624c107；22 项核心和16项原生测试通过，arm64 IPA归档成功。
-- AppIcon资源集包含iPhone所需9个槽位；图像尺寸及不透明RGB检查通过。编译后Info.plist声明AppIcon，包含Assets.car和AppIcon60x60@2x.png。Xcode其余图标变体位于编译资产目录，不能假定每种尺寸都以独立PNG存放。
-- 本地IPA ZIP CRC、云端SHA256、应用标识和构建号11通过。编译后的120×120 CgBI PNG经无损解码，与源图标逐像素一致；IPA中前端品牌PNG也与源文件一致。
-- 下载文件 `release/spiderweb-20261008/StreamHarbor-iOS-unsigned.ipa`，8524659字节，SHA256 `9958fedadb23ac9b74e6fd49682c6a7b0214a108280c7182a2990d30b8bf0ba8`。
-- 前端390×844布局中品牌图标解码为256×256、显示为36×36。证据 `release/spiderweb-20261008/icon-validation.json`、`mobile-icon-preview.png`、`compiled-app-icon.png`。
-- 尚未在真实iPhone签名更新或检查桌面图标；安装按README中的既有侧载流程进行。此次云端测试不替代真实视频下载/全片解码验收。
+原文中的 0.2.1(5) 本地候选及调度回归待云端状态已被后续成功构建覆盖。历史版本的修复范围见 [FIX-VALIDATION.md](FIX-VALIDATION.md)、[FIX-0.1.2-VALIDATION.md](FIX-0.1.2-VALIDATION.md) 和仓库根开发记录；不再作为当前安装状态。

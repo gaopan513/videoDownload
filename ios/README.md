@@ -1,110 +1,72 @@
 # StreamHarbor iPhone 原型
 
-当前源码版本为 1.0.0（构建号 11），包含蜘蛛网视频图标及下述 0.2.2(8)(9) 改动。上一构建号 10 的 [Actions run 36446663138](https://github.com/gaopan513/videoDownload/actions/runs/36446663138) 已通过云端测试和 IPA 归档；该历史包不含本次新图标。新版 IPA 已由 [Actions run 37761235493](https://github.com/gaopan513/videoDownload/actions/runs/37761235493) 成功构建，22 项核心和 16 项原生测试通过；`StreamHarbor-iOS-prototype` artifact 限时提供安装材料。本地下载在 `release/spiderweb-20261008/StreamHarbor-iOS-unsigned.ipa`。历史 0.2.2(9) IPA 位于仓库根目录的 `release/ios/0.2.2-9/StreamHarbor-iOS-unsigned.ipa`（仅本地产物）。本目录内运行下述开发命令。
+当前源码与本地 IPA 为 1.0.0（构建号 11），最低 iOS 17，应用标识 local.streamharbor.ios。手机 AppIcon 与界面品牌使用蜘蛛网视频图标。本说明于 2026-10-09 按源码、工作流和保存的云构建证据核对。
 
-## 蜘蛛网图标（2026-10-08）
+[Actions run 37761235493](https://github.com/gaopan513/videoDownload/actions/runs/37761235493) 已完成 22 项核心、16 项原生测试与 iPhone arm64 归档。当前 [未签名 IPA](release/spiderweb-20261008/StreamHarbor-iOS-unsigned.ipa) 位于 release/spiderweb-20261008/；[安装材料](release/spiderweb-20261008/INSTALL.md)、[云构建证据](release/spiderweb-20261008/cloud-build-evidence.txt) 和 [图标校验](release/spiderweb-20261008/icon-validation.json) 保存在同目录。构建号 10 的旧包不含新图标。
 
-AppIcon 和页面顶部品牌标识统一为蜘蛛网包围播放符号。`ios/App/Assets.xcassets/AppIcon.appiconset` 包含 iPhone 桌面、搜索、设置及 1024 像素 App Store 的不透明 RGB PNG。工程指定 `AppIcon`，打包时检查编译后的资产目录、Info.plist 图标声明和图标文件，防止只替换前端而漏掉手机桌面图标。
+IPA 为 8524659 字节，SHA-256：9958fedadb23ac9b74e6fd49682c6a7b0214a108280c7182a2990d30b8bf0ba8。构建与图标核验已通过；签名更新、iPhone 桌面图标、目标站点整片下载与后台流程仍待真机确认，见 [VALIDATION.md](VALIDATION.md)。
 
-构建号递增为 11，应用标识保持 `local.streamharbor.ios`；使用新版 IPA 更新已有应用。源码资源通过仓库根目录 `scripts/generate-app-icons.ps1 -Target iOS` 从已确认的生成原图导出。手机图标和更新安装仍需真机确认。
+## 安装与使用
 
-## 0.2.2 (9) 候选垃圾资源过滤（2026-09-11，已上传并构建）
+在 Windows 上使用 [Sideloadly 官方工具](https://sideloadly.io/)，按工具说明准备设备驱动，将 iPhone 连接并信任电脑，导入未签名 IPA，用自己的账号签名安装。按设备提示信任开发者并启用开发者模式，签名到期按侧载工具说明续签。账号凭据仅在本机侧载工具中输入，工作流不需要 Apple ID 或开发者证书。
 
-解析时同页常混入广告片段、统计接口与同一文件的签名变体。本轮在捕获端（注入脚本）做通用启发式过滤，不改白名单站点：
+1. 输入单个视频网页、MP4 或 M3U8，点击“解析链接”。
+2. 自动识别失败时点击“打开网页识别”，手动播放并完成验证，再点击网页窗口的“完成识别”。暂无媒体时可在同次运行的识别会话中继续操作后重试。
+3. 选择候选和保存方式，可勾选“完成后逐帧解码校验”，再点击“下载到手机”。无法确认编码时界面会询问是否尝试。
+4. 在下载队列暂停、继续或取消；失败任务可修改保存方式后重试，复用仍有效的已完成分片。
+5. 下载完回到前台封装或转码，再分享/存储到“文件”；MP4 可尝试“存到相册”，保存前会检查系统兼容性。
 
-- 跳过统计/广告主机（clarity.ms、google-analytics、googletagmanager、doubleclick 等）与广告路径关键词（/ads、banner、promo、logo、intro、outro、watermark 等）；
-- 证据分级 origin：<video> 元素最强，程序化请求（fetch/XHR）次之，资源时间线扫描最弱；同一 URL 重复出现只升不降；
-- 展开前按 origin 排序探测，同一路径（去签名 token）只探测一次。
+当前界面没有样本按钮、站点搜索或剧集批量入口；测试链接按验收表填写。“删除记录”仅对已完成或已取消任务显示，保留已完成视频；其他任务需先取消，不提供一键清空完成记录。
 
-本地通过 14 个 Swift 文件语法检查、10 项 JS（新增 3 项过滤回归）、15 项核心与 Vue 构建。云端 22 项核心、16 项原生测试和 IPA 构建通过（run 34581622219）；真机复测仍待完成。正片路径含 intro 等词时存在罕见误杀可能，需真机反馈调整。
+## 媒体与输出
 
-## 0.2.2 (8) 解析/下载性能优化（2026-09-11，后续已上传并构建）
-
-- 解析并行化：发现的媒体地址（≤12 个）由串行展开改为 4 路并发，结果与失败信息按发现顺序合并，一个慢主机不再拖慢其余候选；
-- 解析读取提速：服务器声明 Content-Length 时播放列表等小响应一次性缓冲读取，不再逐字节挂起；
-- 死主机快速失败：探测超时 45s→20s，解析会话空闲 15s、资源总超时 90s（慢但仍在流的响应可完成）；
-- MP4 分段下载与 HLS 一致显示「已完成 x / y 段」。
-
-本地通过 Swift 语法、7 项 JS、15 项核心、Vue 构建；后续与 0.2.2(9) 一并通过云端 Xcode/XCTest 和 IPA 构建。真机复测仍待完成。
-
-## 0.2.2 (7) 下载提速（已上传并云构建成功，2026-09-11）
-
-历史 0.2.2(7) 安装产物（仓库根目录的 `release/ios/0.2.2/StreamHarbor-iOS-unsigned.ipa`，7,345,997 字节，SHA256 d3eda0c5…8c1731）。
-
-本交付同时包含 0.2.2(6) 的修复：识别窗口在尚无媒体时保留当前页面，提示完成验证或播放后再识别，同次运行中重试保留隔离的临时网页会话；HLS 保留服务器声明零时长的分片（juok 样本第 654 片声明 0 但实际含音视频）；HLS 前台使用普通 URLSession、退后台由固定后台会话接管，切换仅重启未完成分片；下载显示接收量、平均速度、30 秒无字节等待提示与失败主机/网络错误码。
-
-- MP4 由单连接整文件改为按字节范围并行分段：仅当 1 字节探测返回 206 且带 Content-Range、文件 ≥16 MiB 时启用，逐段校验 ETag/Last-Modified 与长度一致；
-- 分片完成的加密索引写入移出主线程并合并落盘；进入后台前同步 flushSaves；
-- 启动恢复改为后台串行校验分片哈希，不再阻塞主线程；
-- MP4 分段合并边读边算哈希边写。
-
-云端核心 22 项与原生 16 项测试全部通过（run 34556255163）。待真机验收：MP4 分段与整文件 A/B 提速、HLS 前后台切换与暂停/取消/恢复、三站整片下载与导出。
-
-## 0.2.0 (4) 编码支持候选（2026-09-10）
-
-历史章节：本版已实现与桌面相同的三种输出选择，后续 0.2.1/0.2.2 已在其上继续迭代：
-
-| 保存方式 | 支持范围 |
+| 保存方式 | 实现范围 |
 | --- | --- |
-| 无损 MP4 | 视频 H.264、HEVC、AV1、MPEG-4 Part 2；音频 AAC、MP3、AC-3、E-AC-3、ALAC，与桌面 MP4 白名单一致 |
-| 无损 MKV | 保留原编码，由 FFmpeg Matroska 封装器检查；包含 VP9/Opus 等 MP4 白名单之外的组合 |
-| 转码 MP4 | 本版 FFmpeg 可解码的视频/音频转为 H.264/AAC；iOS 使用 VideoToolbox，桌面使用 libx264，画质参数和性能不同 |
+| 无损 MP4 | 视频 H.264、HEVC、AV1、MPEG-4 Part 2；音频 AAC、MP3、AC-3、E-AC-3、ALAC |
+| 无损 MKV | 保留源编码，由 FFmpeg Matroska 封装检查，可容纳 VP9/Opus 等组合 |
+| 转码 MP4 | 本版媒体库可解码的内容转为 H.264/AAC；视频使用 Apple VideoToolbox，音频使用 FFmpeg AAC |
 
-失败任务可选择另一种保存方式重试，复用已下载分片。旧任务默认 MP4；默认快速检查编码和时长，可选完整解码校验。MKV 分享到“文件”；MP4 保存相册前检查系统兼容性，下载支持不代表相册支持所有原编码。
+相册兼容性与可下载/可封装范围不同；MKV 使用“分享/存储到文件”。默认快速检查编码与时长，可选完整解码；长片转码性能和锁屏行为待真机确认。
 
-媒体库加入 dav1d 1.5.1、内置解码器、MKV 封装、缩放/重采样及 H.264/AAC 编码。转码在前台进行，长片性能及锁屏行为待真机验证。没有宣称所有桌面外部解码库、任意损坏媒体或所有网站已支持。
+支持非 DRM、带 ENDLIST 的有限 HLS：主清单、TS/fMP4、初始化片段、字节范围、独立音轨、AES-128 显式/隐式 IV、密钥轮换，以及 DISCONTINUITY 不连续时间轴。保留清单中声明零时长的分片。不接受直播、DASH、SAMPLE-AES、SESSION-KEY 或 GAP 缺失分片。服务器实际返回 404 的分片无法靠封装或转码恢复。
 
-包含 0.1.2 的不连续 HLS 时间轴处理与 HTTP 404 预检修复。拾光已观测到服务器分片返回 404，编码改造不能恢复缺失分片。毒舌边界两片在 Windows 封装/解码通过，整片与 iPhone 未通过验收。
+网页识别使用通用网络、视频元素与页面线索捕获；没有桌面或扩展的专用平台支持承诺。捕获会过滤部分广告/统计请求，按 video、fetch/XHR、资源时间线的证据强度排序，同路径签名变体合并探测；误过滤与复杂页面兼容性仍需真机反馈。
 
-当时上一版已成功构建的是 [0.1.1 (2)](https://github.com/gaopan513/videoDownload/actions/runs/34354965766)，其 IPA 不包含本次改造。当前 Windows 本地前端构建、6 项 JS 回归和 Swift 语法检查通过；本轮新增原生编码矩阵/转码测试仍待 Xcode，尚无 0.2.0 IPA。
+## 下载、后台与文件
 
-最低支持 iOS 17，Windows 版独立保留。
+默认同时 2 个任务，每任务最多预提交 24 个请求，每主机连接上限 6；预提交量不等于实际并发连接数。解析候选最多 12 个，以 4 路并发展开。MP4 在服务器通过 206/Content-Range 探测且大小适合分段时使用 8 MiB 字节范围分段；最低 16 MiB，超出分段计划上限或探测失败时回退整文件。
 
-## 已接入的原型流程
+HLS 前台使用普通 URLSession，退后台后由系统后台会话接管未完成分片；MP4 使用系统后台下载任务。系统可能延迟后台调度；任务丢失后未完成的整文件请求可能从头下载。合并、解密与转码在前台进行；锁屏测试、前后台切换、认证和系统终止后的恢复仍待真机验收，强制退出不保证持续传输。
 
-输入网页或 MP4/M3U8 → 自动识别或打开网页手动播放 → 点击“完成识别” → 选择资源 → 选择保存方式并探测编码 → 下载 → 回到前台封装或转码 → 快速检查或可选完整解码校验 → 分享到“文件”或保存相册。
+暂停/失败保留临时数据，取消删除本任务临时数据。进程重启后，部分完成的 HLS 先恢复为暂停；继续前重新校验播放列表和密钥，不能确认一致时保留旧数据并要求重新下载。分片索引保存和启动哈希检查移至后台，显示接收量、平均速度、已完成段数及长时间无字节提示；未宣称真机提速倍数。
 
-支持上表中的编码与输出方式；未确定编码时由你选择是否尝试。支持非 DRM 有限 HLS 的 TS/fMP4、初始化片段、字节范围、独立音轨、AES-128 和不连续时间轴。暂不接受直播、DASH、SAMPLE-AES、会话密钥和缺失分片。
+完成视频保存在“文件 → 我的 iPhone → StreamHarbor”。删除记录保留视频；卸载应用会删除应用内文件，需先导出到其他位置。签名到期先续签，避免通过卸载恢复。
 
-下载默认同时 2 个任务，每任务最多预提交 24 个请求，每主机连接上限 6；预提交量不等于实际连接数。HLS 前台使用普通会话，退到后台后使用系统后台会话。操作系统可能延迟后台调度；认证、切换及重启恢复仍须真机验收。合并与解密在前台进行，强制退出不保证续传。MP4 使用系统后台下载任务，正常暂停保留系统任务；如果系统任务丢失，未完成的整文件请求会从头下载。
+任务数据库使用 AES-GCM 加密，密钥保存在 Keychain；临时媒体由 iOS 文件保护管理，未额外加密。完成/取消后清除任务中的媒体 URL、Cookie 和解密密钥。第三方网页只能报告候选，不可调用下载、导出和任务管理桥接；分享和相册权限在点击时请求。
 
-暂停/失败保留临时数据；取消删除任务临时数据；已完成的视频保存在“文件 → 我的 iPhone → StreamHarbor”。签名失效后先续签，勿通过卸载应用恢复，卸载会删除应用内视频。导出到其他文件夹或相册的文件不随应用卸载删除。
+## 开发与云构建
 
-## GitHub 云构建
+以下命令在本目录 ios/ 运行；保留仓库根的 .github/workflows/ios-prototype.yml。
 
-1. 仓库根目录保留 `.github/workflows/ios-prototype.yml` 与 `ios/`；Windows 桌面端源码单独位于 `windows/`。不要上传 `node_modules`、`.tools`、`release`、`.test-data` 或真实站点会话。
-2. 在仓库 Actions 中启用工作流，选择 **iOS prototype IPA → Run workflow**。
-3. 工作流使用 macOS 15 / Xcode 26.3、Node 24.19.0、Capacitor 8.0.0、XcodeGen 2.44.1、FFmpeg 7.1.1、dav1d 1.5.1。依赖版本及媒体库源码 SHA-256 固定，未使用 Windows EXE 或 FFmpegKit 下载包。
-4. 工作流先测试 HLS 核心，再构建媒体库、运行模拟器原生测试，最后归档 iPhone arm64。任何步骤失败都不应将该次运行视为可用安装包。
-5. 成功后在 Artifacts 下载 `StreamHarbor-iOS-prototype`，内有 IPA、SHA256SUMS、安装说明、验证表、媒体源码和重链接材料。云构建可能消耗你的 GitHub Actions 额度。
-6. 失败时下载 `ios-build-diagnostics`；这些诊断只包含构建和可控样本测试，不应加入个人站点 Cookie 或下载链接。
-
-云构建仓库：https://github.com/gaopan513/videoDownload 。在 Actions 页面查看实际构建状态；只有成功运行产生的 artifact 才包含 IPA。GitHub 工作流不需要 Apple ID、开发者证书或密码。
-
-## Windows 侧载
-
-使用 [Sideloadly 官方版本](https://sideloadly.io/)，按其当前说明准备 Apple 设备驱动和所需组件。在自己的 Windows 电脑连接并信任 iPhone，将 `StreamHarbor-iOS-unsigned.ipa` 拖入工具，用自己的 Apple ID 签名安装。凭据只在本机工具中输入，不提交到源码或 CI。
-
-按系统提示信任开发者并启用开发者模式。免费账号签名通常 7 天有效，按 Sideloadly 文档设置续签；没有永久免签承诺。第一次启动先使用原型中的三个样本按钮，按 [验收表](VALIDATION.md) 记录结果。
-
-## 本地开发
-
-Windows 仅能构建前端、生成测试夹具和运行桌面回归；iOS 原生编译仍需要 macOS/Xcode。
-
-```sh
+~~~powershell
 npm ci
 npm run build
+node --test scripts/test-ios-resolver.mjs
 npm run dev
-```
+~~~
 
-浏览器中显示预览提示，原生下载按钮禁用；这不是网页下载器。Windows 命令在同级的 `windows/` 目录运行。
+Windows 可构建前端与运行 JS 回归；浏览器只显示界面预览，原生按钮禁用。Swift/Xcode 编译、模拟器原生测试和 IPA 归档需要 macOS。可选 python scripts/check-ios-source.py 需要 tree_sitter 与 tree_sitter_swift，只检查语法树、plist 和夹具哈希，不替代编译。macOS 核心测试入口为 swift test --package-path ios/Core。
 
-macOS 构建顺序见工作流。合成媒体夹具已随源码提供；修改夹具时可在本目录准备好 FFmpeg 后运行 `node scripts/ios-fixtures.mjs` 重新生成并提交校验值。
+[手动工作流](../.github/workflows/ios-prototype.yml) 名称为 iOS prototype IPA，只由 workflow_dispatch 触发：
 
-## 工程边界
+1. 在 Actions 选择该工作流，点击“Run workflow”。
+2. 工作流按配置使用 macOS 15/Xcode 26.3、Node 24.19.0、Capacitor 8.0.0、XcodeGen 2.44.1、FFmpeg 7.1.1、dav1d 1.5.1；依赖和媒体源码摘要固定。
+3. 构建前端与 JS 回归，核验夹具；运行 Swift 核心测试，构建媒体库和 XcodeGen，执行模拟器测试后归档 arm64 IPA。
+4. 完整运行成功后下载 StreamHarbor-iOS-prototype，包含 IPA、SHA256SUMS.txt、安装/验证说明、媒体源码与重链接材料。该 artifact 保留 14 天；失败诊断 ios-build-diagnostics 保留 7 天。以运行最终结果为准，不能只看 artifact 存在。
+5. 不上传 node_modules、.tools、release、测试临时目录或真实站点会话。
 
-`ios/Core` 是可独立 `swift test` 的播放列表与模型模块；`ios/Native` 实现网页隔离、网络、加密持久化、后台队列及媒体库接口；`ios/App` 注册 Capacitor 插件。第三方网页只可报告候选媒体，不可调用下载、文件导出或任务管理桥接。
+本地 macOS 全量构建顺序以工作流和 scripts/package-ios.sh 为准。夹具位于 ios/Tests/Fixtures；准备 FFmpeg 后可运行 node scripts/ios-fixtures.mjs 重新生成，并提交更新的校验值。
 
-任务数据库通过 AES-GCM 加密，密钥保存在设备 Keychain。临时视频分片由 iOS 文件保护管理，未额外加密。完成或取消任务时从任务数据库移除媒体 URL、Cookie 和解密密钥。分享与相册权限只在用户点击时请求。
+工程路径：ios/Core 为独立 Swift 包；ios/Native 为解析、网络、持久化、后台队列及媒体桥接；ios/App 注册 Capacitor 插件和 AppIcon。图标由仓库根 scripts/generate-app-icons.ps1 -Target iOS 从扩展原图导出，AppIcon 使用不透明 RGB PNG。
 
-第二阶段的完整设置、底部导航、完成记录清理和平台公共 Bridge 整合暂不进入；必须先通过三站真机门槛。
+当前包含 0.2.2(7–9) 的分段下载、持久化/恢复优化、并发解析和捕获过滤；历史修复证据见 [FIX-VALIDATION.md](FIX-VALIDATION.md)、[FIX-0.1.2-VALIDATION.md](FIX-0.1.2-VALIDATION.md) 及根目录开发记录。完整设置、底部导航、完成记录批量清理和公共 Bridge 整合尚未进入阶段二，仍以三站真机门槛为前置条件。第三方许可见 [THIRD_PARTY.md](THIRD_PARTY.md)；其他端见 [Windows](../windows/README.md)、[浏览器扩展](../extension/README.md)。

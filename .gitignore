@@ -9,3 +9,7 @@ ios/ios/public/
 ios/ios/*.xcodeproj/
 ios/ios/Core/.build/
 ios/ios/Core/.swiftpm/
+extension/*-validation.json
+extension/*-probe.json
+extension/*-preview.png
+extension/scripts/fixtures/meta-local-*.pem

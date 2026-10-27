@@ -255,6 +255,7 @@ test('end-to-end download with twitter candidate passes validation', async () =>
       deep: false,
       ffmpeg,
       ffprobe,
+      ytdlp: '',
       candidate: chosen
     };
 

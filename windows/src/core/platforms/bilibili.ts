@@ -83,12 +83,13 @@ export function parseBilibiliResponse(viewData: any, playData: any, originalUrl:
   if (!Array.isArray(durl) || !durl.length || !durl[0]?.url) {
     throw new DownloadError('DISCOVERY', '未找到可直接下载的哔哩哔哩视频流');
   }
+  if (durl.length > 1) throw new DownloadError('UNSUPPORTED', '暂不支持哔哩哔哩多段视频，已停止下载以避免保存不完整视频');
 
   const qualityCode = data.quality || 64;
   const quality = QUALITY_MAP[qualityCode] || `${qualityCode}P`;
   const candidates: Candidate[] = [];
 
-  // 单个视频直链或分段
+  // 单个完整视频直链；多段响应已在上方拒绝。
   candidates.push({
     id: randomUUID(),
     title,

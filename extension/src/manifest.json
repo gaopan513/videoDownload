@@ -1,0 +1,64 @@
+{
+  "manifest_version": 3,
+  "name": "StreamHarbor 视频嗅探与下载",
+  "version": "1.0.7",
+  "description": "通用网页视频嗅探与下载工具，支持 m3u8、mp4、分片并发解密合并导出及主流视频平台直链解析",
+  "permissions": [
+    "webRequest",
+    "webNavigation",
+    "storage",
+    "alarms",
+    "tabs",
+    "activeTab",
+    "downloads",
+    "downloads.open",
+    "offscreen",
+    "declarativeNetRequest"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "src/background/index.ts",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.instagram.com/*", "*://*.facebook.com/*"],
+      "js": ["src/content/meta-bridge.ts"],
+      "run_at": "document_start",
+      "all_frames": true
+    },
+    {
+      "matches": ["*://*.instagram.com/*", "*://*.facebook.com/*"],
+      "js": ["src/content/meta-main.ts"],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": true
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["src/content/index.ts"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
+  "action": {
+    "default_popup": "src/popup/index.html",
+    "default_title": "StreamHarbor 视频嗅探",
+    "default_icon": {
+      "16": "icons/spiderweb16.png",
+      "32": "icons/spiderweb32.png",
+      "48": "icons/spiderweb48.png",
+      "128": "icons/spiderweb128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/spiderweb16.png",
+    "32": "icons/spiderweb32.png",
+    "48": "icons/spiderweb48.png",
+    "128": "icons/spiderweb128.png"
+  }
+}
+
+

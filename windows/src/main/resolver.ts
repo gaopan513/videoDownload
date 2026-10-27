@@ -4,12 +4,29 @@ import * as cheerio from 'cheerio';
 import { parse } from '../core/hls';
 import { DownloadError, webUrl } from '../core/net';
 import { isTwitterUrl } from '../core/twitter';
+import { isYoutubeUrl } from '../core/youtube';
 import { extractMediaUrl } from '../core/utils';
 import { resolveTwitter } from './twitter';
+import { resolveYoutube } from './youtube';
 import { resolveDomestic } from './platforms';
+import { metaPlatform } from '../core/meta';
+import { resolveMeta } from './meta';
 import type { Candidate, Context } from '../shared';
 const mediaPath = (url: string, kind = 'mp4|m3u8') => { try { return new RegExp('\\.(' + kind + ')$', 'i').test(new URL(url).pathname); } catch { return false; } };
 const discard = (response: Response) => { void response.body?.cancel().catch(() => {}); };
+const sessionResolutions = new WeakMap<Session, Promise<void>>();
+
+async function acquireSession(ses: Session, signal: AbortSignal) {
+  const previous = sessionResolutions.get(ses) || Promise.resolve();
+  let unlock!: () => void;
+  const current = new Promise<void>(resolve => { unlock = resolve; });
+  const tail = previous.then(() => current);
+  sessionResolutions.set(ses, tail);
+  const release = () => { unlock(); if (sessionResolutions.get(ses) === tail) sessionResolutions.delete(ses); };
+  try { await abortable(previous, signal); signal.throwIfAborted(); }
+  catch (error) { void previous.then(release); throw error; }
+  return release;
+}
 
 export function abortable<T>(promise: Promise<T>, signal?: AbortSignal | null): Promise<T> {
   if (!signal) return promise;
@@ -47,11 +64,15 @@ export async function readLimited(response: Response, limit = 4 * 1024 * 1024, s
   try { for (;;) { const { done, value } = await abortable(reader.read(), signal); if (done) break; size += value.length; if (size > limit) throw new DownloadError('LIMIT', '页面或播放列表过大'); buffers.push(value); } } finally { void reader.cancel().catch(() => {}); }
   return Buffer.concat(buffers).toString('utf8');
 }
-export async function discover(source: string, proxy: string, signal: AbortSignal): Promise<Candidate[]> {
+export async function discover(source: string, proxy: string, signal: AbortSignal, siteSession?: Session): Promise<Candidate[]> {
   source = extractMediaUrl(source);
   webUrl(source);
+  if (metaPlatform(source)) return await resolveMeta(source, proxy, signal, siteSession);
   if (isTwitterUrl(source)) {
     return await resolveTwitter(source, proxy, signal);
+  }
+  if (isYoutubeUrl(source)) {
+    return await resolveYoutube(source, proxy, signal);
   }
   try {
     const domestic = await resolveDomestic(source, proxy, signal);
@@ -59,17 +80,28 @@ export async function discover(source: string, proxy: string, signal: AbortSigna
       return domestic;
     }
   } catch (err) {
-    if (signal.aborted || (err instanceof DownloadError && err.message.includes('图文'))) {
+    if (signal.aborted || (err instanceof DownloadError && (['URL', 'UNSUPPORTED'].includes(err.code) || err.message.includes('图文')))) {
       throw err;
     }
   }
-  const ses = session.fromPartition('resolve-' + randomUUID()); await ses.setProxy(proxyConfig(proxy));
-  ses.setPermissionRequestHandler((_w, _p, cb) => cb(false)); ses.setPermissionCheckHandler(() => false);
+  const ses = siteSession || session.fromPartition('resolve-' + randomUUID());
+  // ponytail: serialize discovery per login session; use a dispatcher if parallel capture is needed.
+  const release = await acquireSession(ses, signal);
   const found = new Map<string, { url: string; headers: Record<string, string> }>(); let title = '视频'; let browser: BrowserWindow | undefined;
+  let capturing = false;
+  const stopCapture = () => {
+    if (!capturing) return;
+    capturing = false;
+    ses.webRequest.onBeforeSendHeaders(null); ses.webRequest.onHeadersReceived(null); ses.webRequest.onCompleted(null); ses.webRequest.onErrorOccurred(null);
+  };
+  const preventDownload = (e: Electron.Event, _item: Electron.DownloadItem, contents: Electron.WebContents) => { if (contents?.id === browser?.webContents.id) e.preventDefault(); };
   const add = (value: string, base = source, headers: Record<string, string> = {}) => { try { const u = webUrl(new URL(value, base).href).href; if (found.size < 100) found.set(u, { url: u, headers }); } catch {} };
   const abort = () => { if (browser && !browser.isDestroyed()) browser.destroy(); };
   signal.addEventListener('abort', abort, { once: true });
   try {
+    await ses.setProxy(proxyConfig(proxy));
+    signal.throwIfAborted();
+    ses.setPermissionRequestHandler((_w, _p, cb) => cb(false)); ses.setPermissionCheckHandler(() => false);
     // Web pages must run their normal navigation (including challenge reloads).
     // Reserve net.fetch preflight for explicit media URLs.
     try {
@@ -88,10 +120,12 @@ export async function discover(source: string, proxy: string, signal: AbortSigna
     if (!found.size) {
       browser = new BrowserWindow({ show: false, width: 1100, height: 740, webPreferences: { session: ses, sandbox: true, nodeIntegration: false, contextIsolation: true, backgroundThrottling: false, autoplayPolicy: 'no-user-gesture-required', disableDialogs: true } });
       browser.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-      ses.on('will-download', e => e.preventDefault());
+      ses.on('will-download', preventDownload);
       const requests = new Map<number, Record<string, string>>();
-      ses.webRequest.onBeforeSendHeaders((d, cb) => { requests.set(d.id, Object.fromEntries(Object.entries(d.requestHeaders).map(([k, v]) => [k.toLowerCase(), String(v)]))); cb({ requestHeaders: d.requestHeaders }); });
-      ses.webRequest.onHeadersReceived((d, cb) => { const content = Object.entries(d.responseHeaders || {}).find(([k]) => k.toLowerCase() === 'content-type')?.[1]?.join() || ''; if (/video\/(mp4|x-m4v)|mpegurl/i.test(content) || mediaPath(d.url)) add(d.url, source, requests.get(d.id)); cb({}); });
+      const browserId = browser.webContents.id;
+      capturing = true;
+      ses.webRequest.onBeforeSendHeaders((d, cb) => { if (d.webContentsId === browserId) requests.set(d.id, Object.fromEntries(Object.entries(d.requestHeaders).map(([k, v]) => [k.toLowerCase(), String(v)]))); cb({ requestHeaders: d.requestHeaders }); });
+      ses.webRequest.onHeadersReceived((d, cb) => { const content = Object.entries(d.responseHeaders || {}).find(([k]) => k.toLowerCase() === 'content-type')?.[1]?.join() || ''; if (d.webContentsId === browserId && (/video\/(mp4|x-m4v)|mpegurl/i.test(content) || mediaPath(d.url))) add(d.url, source, requests.get(d.id)); cb({}); });
       ses.webRequest.onCompleted(d => requests.delete(d.id)); ses.webRequest.onErrorOccurred(d => requests.delete(d.id));
       void browser.loadURL(source).catch(() => {});
       const started = Date.now(); let foundAt = 0;
@@ -106,10 +140,7 @@ export async function discover(source: string, proxy: string, signal: AbortSigna
       }
     }
     signal.throwIfAborted();
-    ses.webRequest.onBeforeSendHeaders(null);
-    ses.webRequest.onHeadersReceived(null);
-    ses.webRequest.onCompleted(null);
-    ses.webRequest.onErrorOccurred(null);
+    stopCapture();
     const cookies = await ses.cookies.get({}); const result: Candidate[] = []; let lastError: unknown;
     for (const item of found.values()) {
       signal.throwIfAborted();
@@ -142,6 +173,9 @@ export async function discover(source: string, proxy: string, signal: AbortSigna
     }
     if (!result.length) throw lastError || new DownloadError('DISCOVERY', '未发现可下载的完整视频；页面可能需要登录、人工播放、验证或专用适配');
     return result;
-  } finally { signal.removeEventListener('abort', abort); abort(); void ses.clearStorageData().catch(() => {}); void ses.closeAllConnections(); }
+  } finally {
+    try { signal.removeEventListener('abort', abort); abort(); ses.removeListener('will-download', preventDownload); stopCapture(); if (!siteSession) { void ses.clearStorageData().catch(() => {}); void ses.closeAllConnections(); } }
+    finally { release(); }
+  }
 }
 

@@ -80,8 +80,13 @@ export async function resolveDomestic(source: string, proxy: string, signal: Abo
       const id = parseBilibiliId(realUrl);
       if (!id) throw new DownloadError('URL', '未识别到有效的哔哩哔哩 BV 号或 av 号');
 
+      const requestedPage = new URL(realUrl).searchParams.get('p') ?? '1';
+      const page = Number(requestedPage);
+      if (!/^\d+$/.test(requestedPage) || !Number.isSafeInteger(page) || page < 1) throw new DownloadError('URL', '哔哩哔哩分 P 参数无效');
       const viewJson = await fetchJson(ses, buildBilibiliViewUrl(id), BILIBILI_CONTEXT.headers, signal);
-      const cid = viewJson?.data?.cid;
+      const part = Array.isArray(viewJson?.data?.pages) ? viewJson.data.pages.find((item: { page?: number }) => item.page === page) : undefined;
+      const cid = part?.cid || (page === 1 ? viewJson?.data?.cid : undefined);
+      if (!cid && page > 1) throw new DownloadError('URL', '该哔哩哔哩分 P 不存在或无法读取');
       if (!cid) throw new DownloadError('DISCOVERY', '未能获取哔哩哔哩视频 cid');
 
       const playJson = await fetchJson(ses, buildBilibiliPlayUrl(id, cid), BILIBILI_CONTEXT.headers, signal);
@@ -99,8 +104,9 @@ export async function resolveDomestic(source: string, proxy: string, signal: Abo
       if (itemId) {
         try {
           const apiJson = await fetchJson(ses, buildDouyinApiUrl(itemId), DOUYIN_CONTEXT.headers, signal);
+          const candidates = parseDouyinResponse(apiJson, source);
           headRes.body?.cancel().catch(() => {}); // 释放落地页连接
-          return parseDouyinResponse(apiJson, source);
+          return candidates;
         } catch (e) {
           if (signal.aborted) throw e;
           if (e instanceof DownloadError && e.message.includes('图文')) {

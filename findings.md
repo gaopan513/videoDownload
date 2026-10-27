@@ -1,5 +1,50 @@
 # Findings
 
+## 2026-09-29 AdRules 广告过滤
+- 用户指定的 `AdRules.txt` 当前在成品客户端下载后为 5,346,117 字节（HTTP 传输层内容长度曾报约 1.67 MB），首行为 `[Adblock Plus 2.0]`，声明约 137333 条规则，包含网络规则与 `##` 页面元素规则；它不是简单域名黑名单。
+- Ghostery Electron 集成对页面元素规则使用全局 IPC handler，两个独立搜索 session 会重复注册。两个搜索引擎改用同一个 `persist:web-search` 会话；资源站点和下载解析仍各用自己的会话，过滤器只绑定搜索会话。
+- 规则仓库声明 Adblocker/uBlock/AdGuard 兼容；Ghostery 的 Electron 库提供解析列表、会话网络拦截和页面规则注入接口。
+- 每次启动先解析本地成功缓存，再后台下载新版本；首次无缓存时等待至多 20 秒更新，失败仍可打开搜索窗口但界面说明广告规则不可用。更新成功才覆盖缓存。应用内模拟 503 证明缓存继续拦截脚本请求并隐藏广告元素，成品客户端已成功获取用户指定的真实规则地址。
+
+## 2026-09-29 内置网页搜索窗口
+- 现有 Google/DuckDuckGo 按钮经 `open-web-search` 调用 `shell.openExternal`，与“资源站点→访问”的 `BrowserWindow` 路径不同。
+- 搜索引擎若直接加载到 BrowserWindow，没有地址栏；为完成“打开结果并复制链接”，窗口需提供显式复制当前页面网址入口，并兼顾右键链接复制。
+- 两个引擎已使用独立 `persist:web-search-*` Electron 会话；窗口仅加载网页，无应用 preload。菜单提供当前网址复制、前进、后退、刷新，右键菜单可复制结果链接。
+- Electron 自动化实际打开两个内置窗口并通过 `sendInputEvent` 验证 Ctrl+L 将当前 HTTPS 页面网址写入剪贴板。Playwright 页面的键盘模拟在窗口导航期间未触发快捷键，因此验证改在主进程发送原生输入事件。
+
+## 2026-09-29 手动网页搜索需求
+- 当前 LibVio/Stui 存在于默认站点、适配器类型、页面解析和旧配置。旧 `sites.json` 需迁移，不能因类型被删而整体读取失败。
+- 搜索发现有独立跨站搜索输入；Google 和 DuckDuckGo 用系统默认浏览器打开搜索页，可直接使用浏览器地址栏复制目标网页链接，再粘贴到下载工作台。
+- 下载工作台现有粘贴解析流程无需更改；搜索引擎不应伪装成自动解析资源站点。
+- `catalogVersion: 4` 删除 LibVio 旧条目；其他使用 Stui 的自定义站点保留并改为 `none`。旧 Pianku 迁移仍有效。
+- Google 与 DuckDuckGo 使用固定 HTTPS 入口和编码后的 `q` 参数，输入为空时打开首页；主进程只接受这两个引擎及不超过 200 字符的内容。
+
+## 2026-09-29 任意任务记录删除
+- 当前 `clear-completed` 只清除完成记录；每条任务没有删除入口。运行中的 worker、剧集解析器和 AUTH 刷新需在删记录前停止，防止后台流程重新写入状态。
+- 已完成的视频是 `task.output` 指向的最终文件；临时分片使用 `<下载目录>/.streamharbor/<UUID>`。删除记录可清理临时目录而不触碰最终文件。
+- 站点配置的 `adapter` 目前只有 `sotvla`、`dmxq`、`dushe`、`none`，普通新增站点并不会自动具备片名搜索和剧集提取规则。
+- 逐条删除将运行中的 worker 停止后再移除记录；解析中与地址刷新中的任务先标记取消，防止后台重新入队。删除时同步持久化任务、加密候选和剧集来源，失败则恢复记录。最终视频文件不删除，临时分片清理失败会提示。
+- 新便携版因旧同名文件被客户端占用而改名生成。打包目录 19 项回归通过；直接启动新便携版时自解压进程出现，但 Playwright 未取得窗口，不能将其记为便携版 UI 全流程通过。
+
+## 2026-09-29 用户截图问题
+- 搜索页由 App.vue 的 `v-if` 挂载，切换菜单即卸载且清空内存状态。详情组件位于站点列表上方。
+- SearchView 将 Vue 响应式 `scope.value` 数组直接交给 IPC，单站勾选会触发 `An object could not be cloned`。
+- 三个站点的封面原始字段未统一解析为绝对地址；页面直接用 `no-referrer` 显示远程图片。
+- `views()` 直接用 Map 插入顺序；清除完成记录的主进程谓词已严格限制为 `state === 'complete'`。
+- 既有真实站点记录证明 SOTVLA `api_id=1/15` 媒体起始 HTTP 404，`api_id=20` 已整集下载成功；须区分来源问题和整站失效。
+- 用户指定 `api_id=11&vod_id=69899&src=0&ep=0`：当前 Electron 直接解析为 HLS，直接粘贴下载与搜索结果批量路径均已取得第 1/2520 个分片；未完成整集或 MP4 校验。同片名 `api_id=9&vod_id=83515` 当前详情页没有可用剧集。
+- 两张 SOTVLA 封面经站点会话读取成功，约 63 KB；`年会不能停2` 的相关性过滤后只保留 2 条同名结果，第二页返回 0 条。
+- 主进程清除完成记录原本已只选择 `complete`；新增回归证明取消和失败记录在清理及重启后保留。失败状态过去在重启时被重置为暂停，本轮已保持失败状态。
+
+## Windows 搜索发现（2026-09-29）
+- 现有 Windows 主进程在 `windows/src/main/main.ts` 管理任务及 IPC，`resolver.ts` 为每次解析创建临时会话，并在结束时清理。站点会话复用必须调整此生命周期和网络监听器。
+- 原界面 `App.vue` 仅有下载、已完成和设置；新搜索与站点管理可作为独立导航页加入。已有任务安全存储在 `state.json` 的加密字段，站点配置应单独存盘。
+- 开发计划提供 SOTVLA、大米星球详情链接；通用 web 读取这些页面失败，后续以 Electron 会话或实际网络响应核对结构。
+- Python 实时请求 SOTVLA 详情 HTTP 200，确认 `play-source-tab[data-src]`、`[data-src-panel]` 与 `play-ep-pill`；首页搜索表单为 `/search.php?q=`，结果标题链接为 `.sr-title`，资源身份同时包含 `api_id` 与 `vod_id`。大米星球直连返回 403 `Disallow: /?*`；普通 curl 在本机 TLS 证书层失败，不能由此判断 Electron 会话结果。
+- Electron 站点会话实测 SOTVLA 与大米星球前两页搜索不同结果、详情线路和剧集结构。大米星球 `仙逆` 第 01 集完成 779/779 HLS 分片、深度媒体校验，输出 323,664,128 字节，SHA-256 `a19df18c0f70ccd2b7c53222b9356766b02281f299e188f6bfbf9e628f797de4`。SOTVLA `api_id=20` 第 01 集完成 385/385 分片、深度校验，输出 439,969,480 字节，SHA-256 `be7c6feaf9fb59a8fbc3b51eeb17e93951eb3ec7c29acf5ac8440443c675bc02`；`api_id=1/15` 两来源起始 HTTP 404。
+- 毒舌原生 Electron 窗口进入重定向后的 `dushe1.app`，搜索表单为 `/search`，参数 `k` 与隐藏 `t`；结果卡片为 `a.search-result-item`，分页 `page`；详情页 `.source-item` 与 `.episode-list` 按序一一对应，播放页 `/play/<id>.html`。原生会话实测前两页各 18 条、首条 22 条线路；首条线路首集经同一解析器与下载核心完成完整下载和深度校验，输出 431,404,811 字节，SHA-256 `85822945121c60d08910da0db41a6123c79e6ca063d53716325c7adeba4abdc4`。带 Playwright 调试连接的应用会话仍遇站点验证，不能把该路径算通过。
+- 打包程序搜索详情界面首次因 Vue 响应式对象经 IPC 无法克隆而失败，改为传普通对象后通过；明文任务记录回归首次发现多候选 `source` 泄露播放页地址，改为站点名后通过。
+
 ## 仓库更名与双端拆分（2026-09-28）
 - 当前本地目录不是 Git 工作区；上一轮通过 GitHub 连接器将完整源码上传到私有仓库 `gaopan513/ios-videoDownload`。迁移须核对远端 `main`，并保持私有可见性。
 - iOS 构建工作流依赖原 `mobile/` 与根 `scripts/`；桌面构建脚本以当前工作目录为项目根。拆分后两端脚本应各自从其子目录运行，根目录保留仓库级工作流与总览。
@@ -174,3 +219,235 @@
 - 最小 Range 探测改为单字节。真实复测：毒舌 HLS 11.3 秒、剧踪 MP4 6.6 秒、拾光 HLS 8.7 秒；尚未执行整片下载。
 - 防盗链回归进一步确认：Electron 44 仅设置 referrer 字段并不会发送 Referer；最终必须保留 Referer header，同时显式设置 referrerPolicy。两个 IPv4 端口的嵌套播放器测试已验证服务端收到完整来源。
 - 完成记录清除独立 IPC 经主窗口校验，只修改任务索引并持久化，不执行文件删除；清除期间按钮禁用，无完成记录时不可点击。
+# 2026-09-29 五站适配探查
+
+## 2026-09-29 本轮排查
+- 截图中 LibVio 搜索有结果，但详情报“Stui 播放列表结构已变化”；当前解析仅匹配 `.playlist-panel .stui-content__playlist a[href*="/w/"]`。
+- 搜索结果按配置列表固定排序；单站重试没有独立的可见进度与结果清理。
+- 片库同时存在于默认站点、`pianku` 类型、旧配置迁移和持久化用户列表，移除须覆盖这些入口。
+- 原生 Electron 复现“年会不能停！2”：LibVio `/detail/714893696.html` 只有 `.play-btn a[href="/w/714893696-1-1.html"]`，其余 `.playlist-panel` 均为网盘；保留多集列表解析，缺失时使用这条站内播放入口。
+- 修复后原生 Electron 搜索返回 1 条，详情返回 1 条“在线播放”线路；同一播放页的媒体探针返回“未发现可下载的完整视频”。详情可打开与媒体可下载应分别陈述。
+- 片库旧预置记录在 `catalogVersion: 3` 迁移时移除；其他使用旧 `pianku` 类型的自定义站点保留配置并改为 `none`，避免整个 `sites.json` 无法加载。
+
+- 现有 Windows 站点适配器：SOTVLA 使用 `search.php/detail.php/play.php`，大米星球使用 `vodsearch/voddetail/vodplay`，毒舌使用带表单令牌的 `/search`、`/detail`、`/play`。其真实结构需要与新站逐一比对。
+- 网页抓取工具只取得片库首页；LibVio、绿丝草、星河看、滴答高清分别出现工具不可访问或 403。这些结果不等于 Electron 会话不可访问，后续以原生 Electron 页面为准。
+- 首轮原生 Electron 页面：LibVio 播放页可打开，搜索表单是 `/search/-------------.html?wd=`，剧集为 `/w/<片 ID>-<线路>-<集>.html`，有 `stui-player` 容器。
+- 片库首页可打开，搜索表单是 `/vodsearch/-------------.html?wd=`；需要继续确认搜索结果的详情和线路模板是否与大米星球一致。
+- 绿色影视播放页可打开，搜索表单是 `/search.php?searchword=`，剧集为 `/play/<片 ID>-<线路>-<集>.html`，`myui-player` 容器。
+- 嘀嗒影视首页可打开，搜索表单也是 `/search/-------------.html?wd=`，详情链接为 `/detail/<片 ID>.html`，首页卡片使用 `myui-vodlist__thumb`。
+- 星河看 `https://xhkan1.top/` 在原生 Electron 导航超时；网页抓取返回 403。尚无可靠模板证据，不据此归类。
+- 第二轮原生 Electron 搜索/详情：LibVio 结果 `.stui-vodlist__box`、详情 `.playlist-panel` / `.stui-content__playlist`，线路剧集 `/w/<id>-<line>-<episode>.html`；需新建 `stui` 类。
+- 绿色影视与嘀嗒影视都使用 `.myui-content__list` 组织剧集，链接分别为 `/play/<id>-0-0.html` 与 `/play/<id>-5-1.html` 等；可按 URL 中的线路编号通用分组。搜索与详情路由不同，应从站点表单和结果链接提取。
+- 片库与大米星球都使用 `/vodsearch`、`/voddetail`、`/vodplay` 路由，但片库结果是 `.vod-grid .vod-item`、详情 `.play-source-section`，当前样本为空，仅有“播放”链接；不能直接沿用大米星球 `.module-*` 详情选择器。可共享 `/vodplay` 线路分组，同时给片库独立页面布局解析。
+- LibVio 页面提示搜索间隔至少 5 秒；原生 Electron 搜索页等待 2 秒并在提示页等待后重试，可以再次取得 1 条结果、7 集详情和 MP4 候选。频繁探针访问时可能临时返回空页。
+- 绿色影视的“下一页”链接可能存在但“尾页”为第 1 页；请求第 2 页会重复第 1 页，因此按尾页编号和结果 ID 去重。
+- 媒体发现：LibVio 首集 1 个 MP4 候选，绿色影视首集 2 个 HLS 候选，嘀嗒首集 1 个 HLS 候选。片库两条同名搜索结果各有播放入口，但均无媒体候选；一次播放页导航超时。候选发现不是整集下载证明。
+- 星河看原地址超时；用户给出的 `xhkan.cc` 是线路发布页，`xhkan2.top`/`xhkan3.top` 显示滑块验证。用户明确要求移除此站，最终预置列表不包含它。
+
+
+## 2026-09-30 Chrome 扩展故障定位
+- 扩展是独立 Vite/Vue Manifest V3 项目，MP4 原先在 popup 直接调用 downloads.download，未传递播放请求上下文。
+- 下载 API 返回 ID 即报告完成，没有监测 complete/interrupted；WebM 也被强制命名为 MP4。
+- 网络捕获按整条 URL 的 .mp4 字串分类，未排除 HTML/HTTP 错误；DOM 候选先到时网络候选被直接忽略。
+- 截图反映 HTML 保存及 Chrome 提取失败；Referer 防盗链是待浏览器实测的原因，尚未确认真实站点返回内容。
+
+## 2026-09-30 Chrome 扩展修复完成
+- Chrome for Testing 154.0.8037.92 实测：downloads.download 直接传 Referer 报 Unsafe request header name；DNR 对扩展 fetch 生效，但原生下载请求仍未带 Referer。
+- 最终方案：保留网络 Referer/Origin，session DNR 精确匹配资源且排除播放标签；后台 offscreen 文档获取完整 MP4/WebM，Blob 交给 Chrome 保存。原生保存 complete 才报告 100%，interrupted/HTML/网络中断报告失败，完成时清理规则和 Blob。
+- 对捕获 URL 使用 pathname/MIME，排除 HTML/JSON 和 query 假媒体；Range 总大小使用 Content-Range，DOM 候选由网络信息补全。content script 独立 IIFE 打包。
+- 6 组实际浏览器回归通过（浏览器内执行、Referer、完整字节、WebM、HTML 拒绝、popup 重开、网络中断）。使用受控二进制夹具，未作视频解码或真实 LibVio 整集验收。
+- MP4/WebM 暂存完整文件占用内存；HLS 生命周期未改，仍需保持 popup 打开。用户重载扩展并刷新播放页后可获得新捕获上下文。
+
+## 2026-09-30 完整性提示复查发现
+- 错误来自 offscreen 读取结束后 received !== total；total 原先混用本次 Content-Length 与播放候选 size。
+- 压缩响应 Content-Length 为编码后长度，fetch 读取为解码后字节；候选 size 只能用于进度估计，不能作为新响应的强校验值。
+- 本次下载和 Range 预检都改为 cache:no-store，避免小范围响应污染缓存。严格长度校验只使用本次未编码响应的 Content-Length/完整 Content-Range；真实网络截断和不完整 206 仍失败。
+- 截图同一 MP4 带不同 hash 重复出现，捕获键按实际请求 URL 去掉 hash 去重。
+- 普通 HTTP 探针 v.livio.app 无法连接、旧 v.libhd.app 返回 Cloudflare 403，不能代替用户 Chrome 的响应证据。CUA 初始化报 assets 路径缺失，未能读取用户标签页；已请求实际链接。
+
+## 2026-09-30 完整性复查最终证据
+- 用户提供 https://v.libvio.app/2026/mj/8/Lanterns.S01/Lanterns.S01E01.mp4#t=1133.01 与 https://www.libvio.io/w/714893650-3-1.html。
+- Chrome for Testing 154.0.8037.92 使用最终 extension/dist 完整获取并落盘：HTTP 200，Content-Encoding identity，声明/接收/保存均为 934277489 字节。
+- FFprobe：H.264 1920x960、AAC，3388.635250 秒（约 56 分 29 秒）。报告 extension/browser-validation.json；未做全片深度解码，也未读取用户原 Chrome 失败请求。
+- 8 组受控回归加 1 组真实视频验收通过，TypeScript/Vue 检查及 Vite 构建通过。压缩与 chunked 的误判路径已由受控浏览器验证；此次真实站点未返回压缩响应，不能把用户原失败直接认定为 gzip。
+- cache:no-store 禁止 Range 预检/完整下载复用缓存；严格校验依据本次响应。原 Chrome 失败究竟由旧缓存还是旧长度来源触发，缺少当时响应证据；修正后该视频已完成实际验收。
+
+## 2026-09-30 跨页面下载进度定位
+- 后台任务已通过 storage.session 保存，popup 的 progressMap 也会读全部任务，但模板只遍历当前标签页 candidates。因此切换页面后任务仍运行但无卡片承载状态。
+- 任务记录目前未保存标题/媒体地址等显示信息；将补入任务元数据并在 popup 顶部独立渲染跨页面任务。
+
+## 2026-09-30 任务操作追加范围
+- 用户追加暂停/继续/重试/取消需求。MP4/WebM 全局任务保存 UI 元数据、请求上下文与尝试 runId，独立于 tabCandidates。
+- offscreen 为任务保留分段内存，暂停 AbortController；继续以 Range + If-Range 验证文件身份/完整范围，无法证明一致则重新下载；取消清理内存和 DNR/Blob，重试创建新尝试并隔离旧回调。
+- 任务完成提供打开文件/显示文件夹/移除记录，失败/取消提供重试/移除。打开文件在 UI click 直接调用 chrome.downloads.open 保留 user gesture，增加 downloads.open 权限。
+- 保存对话框不持有任务队列，其他任务可继续操作。移除记录保留本地文件。此次控制覆盖 MP4/WebM，HLS 原弹窗流程未迁移。
+- 13 组 Chrome 浏览器回归初步通过：跨标签页 UI、暂停/继续 Range、取消/重试、失败传播、源文件改变和无校验标识时安全重下、记录移除保留文件。
+
+## 2026-09-30 全局任务与控制最终验收
+- 最终 Chrome for Testing 154.0.8037.92 共 14 组检查通过，报告 extension/browser-validation.json；受控操作报告 extension/browser-controls-validation.json。
+- 用户 LibVio 视频实际点击暂停，暂停 1 秒进度不变；继续请求以 Range/If-Range 接续。最终 receivedBytes/savedBytes/expectedBytes 均为 934277489，FFprobe H.264 1920x960 + AAC、3388.635250 秒。
+- 完成后按钮仅核对显示与 API/permissions；没有自动启动系统播放器或文件管理器。真实视频测试文件、隔离 profile 清理，临时 Chrome 运行时验收后删除。
+- 初次尝试同一 apply_patch 对同一文件 Delete/Add 被工具拒绝，源码当时未改变；后用单次写入完成 offscreen 重构。
+
+## 2026-09-30 弹窗恢复复查
+- 用户反馈切换标签后全局进度仍消失且原页状态也消失；不能把前轮普通扩展页面重开测试当作真实工具栏 popup 已验证。
+- 当前任务 storage.session，界面仅依赖 runtime 消息且失败只写 console。后台完成依赖长时 sendMessage 的返回 Promise，worker 被销毁后原回调无法恢复。
+- 将任务迁移到 storage.local，并用 offscreen 完成事件更新；popup 先直接读持久化状态，再后台同步，显示版本与同步错误。
+- CUA/node_repl 均因 kernel assets 路径缺失无法初始化，暂不能读取用户真实 Chrome；已询问是否能看到前轮全局任务区域/按钮。
+
+## 2026-09-30 运行版本核实与恢复验证
+- 用户回复完全看不到“下载任务 / 全部页面”和操作按钮。不能据此单独认定是哪一路径：旧目录构建或无任务时旧模板隐藏区域/静默同步失败均可能。1.0.1 固定显示版本号与任务区，错误可见，提供明确加载目录。
+- 源/manifest/package/lock 版本统一为 1.0.1。持久任务 storage.local，session 旧任务迁移；popup 直接读本地并监听 changes，当前候选按 canonical URL 关联旧任务。
+- offscreen 下载完成发送 BUFFERED_RESULT 事件，替代依赖旧 worker 内 Promise 的完成回调；恢复时重新安装丢失的 Referer/Origin 规则；无后台暂存时保留任务并提供重新获取。
+- 原工具栏测试 target 为 page 但 Playwright context.pages 不暴露；改为直接 CDP attach chrome.action.openPopup 所创建目标。headless 打开后需恢复正常窗口焦点；worker.waitForEvent(close) 未收到事件，改为 CDP workerVersion runningStatus=stopped 严格核对。
+
+## 2026-09-30 1.0.1 遗漏路径
+- popup.startDownload 对 HLS 直接 await downloadHlsStream；该函数在 popup 中执行 fetch/分片数组/Blob，且不保存 nativeDownloadTasks。
+- 当前后台入口 startNativeDownload 只允许 MP4/WebM；前轮真正 popup 验收也只覆盖 MP4。因此此前验收不能证明 HLS 跨页面持续。
+- 将两种下载统一为 offscreen 执行、storage.local 元数据、worker 完成事件；HLS 独立保存分片并支持暂停/继续/取消。
+
+## 2026-09-30 1.0.2 最终证据
+- 用户确认故障类型是 M3U8/HLS，与源码的 popup 独立下载路径一致。
+- 新后台任务保存来源/清晰度，HLS 每个清单/分片/密钥请求附带来源，规则仅匹配扩展请求；失败/完成/取消清理。
+- 暂停复用已完成分片，继续按原顺序拼接；显式 IV 改为网络字节序，36 个受控加密 TS 分片显式及隐式 IV 输出字节均一致。
+- 13 组常规检查、17 项真正 popup 检查通过；HLS 独立报告 hls-lifecycle-validation.json（9 项），保存/期望各 27072 字节。
+- 原站点整集与解码仍未验收。旧 1.0.1 HLS 没有任务持久记录，只能重新开始。
+
+## 2026-09-30 扩展批量需求初查
+- 用户指定 lvsc168 /movie/93518.html 与 /play/93518-0-0.html、0-1.html，要求图标正在下载数和剧集批量。
+- 当前角标显示按标签页捕获媒体数，需替换为全局下载任务数。
+- Windows 已有 Myui 详情解析可参考，但扩展须独立实际浏览器验证，不直接沿用旧验收。
+- web 页面抓取工具对三条链接均无法访问，将切换实际浏览器取证。
+- 实际浏览器详情页确认《心动APP之青梅好感爆了第二季》“高速”线路 128 集；详情使用 #playlist1，播放页使用 ul.myui-content__list.playlist。
+- 首集 /play/93518-0-0.html 脚本 var now=base64decode(...) 指向 svip.ryplay16.com/share/...；嵌套播放器 DOM 有 var main 的签名 M3U8 URL。需实际打开每集页面并捕获嵌套播放器，不能把播放页地址当下载链接。
+- 实现：从当前页实际链接提取相同作品/同源线路，支持 Myui 页面结构；不递增猜测剧集 URL。新增后台剧集队列，默认 2 槽，先持久化排队，再逐集解析播放器媒体。
+- 角标从捕获数量改为全局 preparing/resolving/downloading 任务数；旧版本按标签覆盖会在 worker 启动时清理。
+- 批量文件默认自动保存 StreamHarbor/作品/线路_集名，手动单文件仍用原保存对话框；剧集失败重试重新解析播放页。
+- 增加 alarms 唤醒，worker 重启可重连持久化解析标签；已加入排队/解析状态与取消操作。
+
+- 实际浏览器第二集确认同作品 128 集，vpart=1，播放器 share ID 与首集不同。
+- 新集成测试首轮误用 worker runtime.sendMessage 向自身发消息，Chrome 不会投递给发送者；改用真实 popup/扩展页面发控制消息，重新验收。
+
+- 强制停止 worker 的新回归发现解析标签持久化后、导航前中断，会在恢复时错误复用 about:blank。已修正为恢复空标签的导航，并持久化解析起始时间避免 worker 重启无限延长超时。
+- 完整环境仍复现新建 about:blank 后再 update 的第二个后台标签停留 unloaded，网络只发出了根页请求而未加载 iframe。改为 tabs.create 直接带播放页 URL，减少空标签导航切换，继续实际验证。
+- storage 返回对象键顺序不保证排队顺序；补入独立 queueOrder，保持剧集选择顺序，不依赖相同毫秒时间戳和随机任务 ID。
+
+## 2026-09-30 剧集批量最终核心验证
+- 新标签直接用播放页 URL 创建后，五组真正 popup 批量集成检查全部通过；验证两集并发、角标 2/1/空、排队取消、重复去重、暂停后 worker 重启恢复、重试、持久空标签恢复与保存字节一致。
+- 最终 Chromium 扩展会话真实读取 /movie/93518.html 的 128 集“高速”线路，前两集真实批量完整落盘，非仅网页抓取或候选发现。
+- 第01集 20621908 字节，FFprobe H.264 1280x720 / AAC / 119.356556 秒；第02集 14608164 字节，同编解码及分辨率 / 111.689889 秒。实际保存大小等于任务合并 receivedBytes。
+- 证据：series-validation.json、series-live-validation.json、series-live-preview.png；未做全片深度解码或其余 126 集下载验收。
+- 实测 screenshot 表明完成记录较多时剧集区被推到下方，已限制任务列表滚动高度，保留剧集入口易找。
+
+- 最终角标迁移额外验证：人为设置当前标签旧值99，worker重启后恢复全局下载2，证明标签覆盖已清除。最终截图 series-preview.png 已复核深色布局与任务列表独立滚动。
+
+## 2026-09-30 首尾播放页范围批量下载
+- 用户要求将自动识别入口改为首集/末集链接输入。生成连续播放页，逐集入槽解析媒体，不递增视频签名地址。
+- 同源、固定文本和其他数字一致，仅一个数字字段变化；拒绝倒序、超过2000集和媒体直链。保留编号补零、0起始与查询参数。
+- [x] 首尾输入、可选名称、生成范围/逐集链接预览、多选全选、草稿恢复及后台独立验证完成，版本1.0.4。
+- [x] 20项范围检查、6组真正popup批量集成、13组常规回归、17项生命周期、TypeScript/Vue检查通过。受控HLS完整合并落盘字节一致。
+- [x] 真实LibVio两集分别解析v.libvio.app的Lanterns.S01E01.mp4和S01E02.mp4并进入下载，随后暂停取消；未完整下载/解码本轮真实两集。
+- esbuild范围测试在沙箱访问父目录失败，经批准使用完整环境后通过；真实浏览器测试无需该升级。
+
+## 2026-09-30 juok3 HLS 分片校验失败
+- 用户询问绿色影视识别规则：core/series.ts与后台/content读取仍保留，1.0.4界面不再自动展示。
+- 排查指定播放页真实清单/分片，依据实际格式修复，不直接去掉媒体完整性校验。
+- [x] 真实浏览器证据、实现修复、匹配测试及构建交付（清单重放与上游404的验收边界已记录）。
+- 指定站点《兰香如故》第6集：581个分片；PNG URL与代理URL样本均200/image/png，PNG IEND结束于120字节，随后188字节同步TS包。原校验首字节0x47导致拒绝。
+- 修复：仅识别完整PNG签名与IHDR/IEND结构（上限1MiB），精确移除图片边界之前的字节；检验余下全部188字节TS同步字节，不扫描或忽略任意垃圾数据。
+- [x] PNG结构识别与完整TS包同步校验实现，13项分片检查和20项真实popup/HLS生命周期检查通过。
+- 用户追加要求：删除绿色影视专用列表识别，仅保留首尾链接通用批量；已删除Myui discoverSeries、GET_TAB_SERIES/GET_SERIES_CATALOG/ENQUEUE_EPISODES入口与后台专用路径验证，保留通用播放器媒体配置嗅探（player-media.ts）。
+- 真实扩展会话新签发清单返回404；此前正常浏览器现场清单随后也404。已记录hls-upstream-validation.json，不将上游404归因于分片修复。改用现场已捕获581分片清单本地重放，所有分片仍按原URI远程获取，验收边界单独标注。
+- [x] 移除绿色影视专用识别后的构建与类型检查通过，通用媒体嗅探保留。
+- [x] 使用现场已抓取清单重放，581个原URI真实远程PNG分片全部下载/规范化/扩展原生落盘；625878132字节，移除69720字节封装；FFprobe H.264 1920x1080/AAC/2802.24秒。未做全片深度解码；当前上游新清单404，不能宣称重开网页的一键整集验收通过。
+- 证据：hls-site-probe.json、hls-segment-probe.json、hls-upstream-validation.json、hls-png-live-validation.json；实际文件与临时profile由测试结束时清理。
+- [x] 删除专用识别后6组通用批量回归通过；最终1.0.5 ZIP根manifest/四入口/权限/压缩完整性与旧入口移除核验通过。
+- ZIP: 61371字节；SHA256 a910908695d2c37cb4902cc28b5187028792b6e7baa28d7e0b516b951d5234a8。
+
+## 2026-09-30 三页面与清空操作 1.0.6
+- 当前捕获/剧集批量/下载任务三页，默认捕获；沿用现有深色系统字体和绿色状态导航，固定头部与标签、独立滚动内容。
+- 批量输入一键清空并保存空草稿；完成任务在后台串行单次持久清理，保留文件/未完成/失败/取消记录；去掉本页列表清理UI与消息入口。
+- [x] 类型/构建、实际popup页面切换/清空、队列回归、ZIP核验。
+- 用户追加：两清空按钮严格限定在对应页面；所有单文件下载改saveAs:false，使用Chrome默认下载目录，批量保持默认目录下StreamHarbor分组。
+- 三页面/清空/队列9组真正工具栏回归通过；接下来验证原生默认目录与禁用保存对话框，不使用测试强行改写saveAs。
+- 用户追加：角标改本标签页捕获数（替代全局下载数），刷新/导航时重置，后台重启按session恢复；任务顺序运行→排队/暂停→失败/取消→完成，排队按queueOrder。
+- 原生默认目录验收已通过（21项popup生命周期）；Chrome全局prompt_for_download=true时仍弹窗/无头中取消，false时无需CDP强制下载路径即可落盘。扩展saveAs:false不能覆盖浏览器该开关，记录边界，未改用户Chrome全局设置。
+- 捕获角标回归发现启动时persist先于session恢复，可能覆盖捕获列表；已等待恢复后再持久化，并标记导航/关闭标签跳过旧数据。最终11组真正popup/角标/排序/清空/队列检查通过。
+- 最终13组常规下载回归通过；1.0.6 ZIP根manifest、四入口、权限、压缩完整性及旧入口移除核验通过。62481字节，SHA256 f15eee3d4290181840f442f923c99ff84ada3e731f4f485109feef1fd56a512f。临时Chrome运行时已清理。
+
+## 2026-09-30 Chrome 扩展平台核查
+- 当前平台调度仅 Bilibili；Instagram / Facebook 无专用解析器。通用捕获仅 HTTP MP4/WebM/M3U8，blob/DASH 不能直接下载。
+- Chrome 扩展 1.0.6 有现成下载完整性、来源请求头、后台任务及测试脚本；新增支持复用该路径。
+- 当前 yt-dlp 官方提取器确认 Instagram video_versions/video_url，Facebook videoDeliveryLegacyFields 与新 progressive_urls/hls_playlist_urls；优先读取页面已有数据，不硬编码私有 GraphQL doc_id 或提交账户请求。
+- web 工具访问公开样本失败，转隔离 Chromium 真实页面检查；代码支持与真实站点验收分别记录。
+- Meta浏览器11组检查通过：IG轮播/1080p、document_start fetch、Facebook XHR新版HD字段、完整MP4落盘、短链重定向、页面复用、伪造URL拒绝、DASH提示、SPA清理、受限页保留。两站受控下载各262144字节一致。
+- 第一轮匿名真实页面：Instagram可见帖文与登录提示但未捕获直链；旧Facebook样本显示视频无法再观看。正在进一步核查实际字段与可访问公开视频。
+- 最终公共Facebook页面已捕获SD/HD并通过扩展真实完整落盘1419576字节，源响应声明长度与落盘一致。旧样本不可观看，使用该页实际视频推荐链接取证。Instagram仍有提取遗漏，正在独立字段诊断；暂不宣称其真实下载通过。
+- 常规13组、popup21项（含HLS/PNG/AES/自动保存）、批量11组全部通过。
+- 实际事件序列证明Instagram候选曾发送，但其后子iframe的loading/complete误清理主页面。仅靠tabs.status不足以区分页面导航；已改主框架webNavigation事件，并保留SPA history变更清理。
+- 真实最终IG Reel：918120字节，H.264 480x854/4.966667秒；源数据has_audio:false，FFprobe无音轨一致。真实Facebook视频：11647988字节，H.264 720x1280/AAC/61.374708秒；响应声明/收到/落盘字节一致。未做全片深度解码。证据meta-live-validation.json。
+- 当前明确的专用解析器：Bilibili、Instagram、Facebook；其他主流平台无专用适配，MP4/WebM/HLS格式通用嗅探不能替代逐站支持声明。
+- 已将过时角标与裸BV/AV/短链支持说明修正；历史版本记录保留。
+
+## 2026-10-08 蜘蛛网图标
+- 扩展版本 1.0.7，Manifest V3。manifest 的 icons 与 action.default_icon 均需要替换。
+- Vite 构建会复制 src/icons 至 dist/icons；新增 32 像素图标供工具栏使用。
+- 生成原图为 1254×1254，Format32bppArgb，角像素 alpha=0，确有透明边缘。
+- 概念/原始提示：青色简洁蜘蛛网包围白色播放三角，深蓝圆角背景、外围透明、无文字，适合小尺寸识别；通过内置 image_gen 生成，本轮沿用用户确认的图像。
+
+- 新图标四种尺寸的 RGBA PNG、源码/构建一致性、六入口与 ZIP CRC/逐文件读取核验通过；128 像素成品已视觉检查。
+
+## 2026-10-08 绿色影视搜索
+- sites.ts 的 searchForm 仅接受 form 内 input[name=wd/searchword]；绿色影视和嘀嗒影视共用 myui。待核对当前 DOM。
+# 2026-10-08 Windows Meta 支持调查
+
+- windows/src/main/resolver.ts 仅 Twitter 与国内平台专用分支；Meta 只有通用网页 / 网络捕获。
+- extension/src/core/meta-media.ts 识别平台、目标帖子、已知 progressive 字段、JSON 字符串嵌套与 OG 标签，并保留 CDN 签名、移除 bytestart / byteend。
+- 原始 MP4 网络请求可能是分离轨道；桌面 Meta 路径应只接收已知 progressive 字段，不降级到任意 CDN 嗅探。
+- 现有下载引擎支持完整 MP4 与 HLS；本次沿用 MP4 能力，DASH-only 应显示具体限制。
+- 现场 Instagram 目标可解析和完整下载；Facebook 两个样本导航无法打开。本轮功能与受控集成已验证，不能宣称 Facebook 现场完整下载通过。
+- 共享解析器引入同级源码依赖，export-source.py 必须保留 windows/ 与 extension/src/ 层级；最终运行包由 esbuild 嵌入解析器。
+
+
+- 原生 Electron：800ms 为 Cloudflare 安全验证页（无 form）；继续等待 8s 后主页出现原 searchword GET /search.php 表单。嘀嗒仍用 wd。根因为读取过早与误分类，采用同窗口最多追加 10s 等待，未完成转 ACCESS。
+
+
+- 最终真实搜索：绿色影视 1 条结果，2 线路各 8 集；嘀嗒 1 条结果、8 线路。证据 myui-search-live-20261008.json。本轮仅验收搜索与详情，不计整集下载。
+- 独立正确性审查：Cloudflare 正常 JSD 脚本路径也含 challenge-platform；已收窄到 orchestrate/chl_page，增加 JSD 不误判回归。官方 https://developers.cloudflare.com/cloudflare-challenges/challenge-types/javascript-detections/ 。
+
+## 2026-10-08 双客户端图标
+- Windows 现有 win.signAndEditExecutable=false 禁用 EXE 图标编辑；当前 electron-builder 26.15.3 支持 signExecutable=false，仅关闭签名而保留图标/元数据写入。
+- iOS App 下尚无 Assets.xcassets。project.yml 包含 App 资源，需要显式 ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon。
+- iOS 图标使用 RGB 不透明背景，保留蜘蛛网/播放标识；Windows 保留透明 PNG/ICO。桌面和手机页面的箭头品牌标识同步替换。
+- 权威参考：https://www.electron.build/v26/docs/api/app-builder-lib.interface.windowsconfiguration/ 及 https://developer.apple.com/documentation/xcode/configuring-your-app-icon 。
+- GitHub main 基线 7d82c404 与本地 iOS 非图标源码相同，采用最小18文件提交 5d9c0376。云构建 run 37761235493 使用该提交。iOS前端与HLS核心检查通过。
+
+- IPA实际布局只有独立AppIcon60x60@2x.png，其余图标由Assets.car承载；本地错误的多PNG假设已修正。CgBI PNG解码后的120×120 RGB像素与源图一致，前端PNG、版本11、ZIPCRC和云端SHA256全部通过。
+
+## 2026-10-09 三端说明核对
+- 根 README 仍称两端，遗漏 extension，iOS 仍指向构建号 10 的旧运行。
+- extension README 将多个历史版本的角标、自动剧集识别、页面布局与安装步骤混作当前指南；当前版本为 1.0.7。
+- Windows README 的使用步骤仍指向旧 release 根目录，最新图标包在 spiderweb-20261008。
+- iOS 验证说明包含过时的 DISCONTINUITY 拒绝及待 Mac 测试状态，需要逐条对照源码和保存的构建证据。
+
+- 已直接读取 Windows 三个发布目录的 app.asar；spiderweb 版主进程与当前 windows/dist/main/main.cjs 逐字节相同，包含 Meta/国内平台/X 解析与 Cloudflare 等待修复。
+- iOS 当前 UI 已删除样本按钮，支持完成/取消任务逐条删除记录；原 README 的样本按钮和完全不支持记录清理说明过时。
+- iOS HLS.swift 已支持 DISCONTINUITY，DownloadSchedulingTests 已在保存的构建号11日志中随22项核心回归通过。
+- extension 无独立音轨合并或直播轮询；HLS为内存TS拼接，不能写成磁盘流式下载或MP4转封装。
+- 报告位于 extension 根目录（不是extension/artifacts）；图标ZIP105076字节。Windows图标包主进程与当前dist一致；iOS IPA8524659字节。
+
+- 当前说明已统一到扩展1.0.7、Windows1.0.0蜘蛛网包、iOS1.0.0(11)。扩展历史段落移入新VALIDATION.md，最新iOS发布侧说明已同步。
+- 最终复核原生测试：16项实际覆盖包括记录删除的持久化回滚与保留输出；旧文案计划中的迁移/改变格式回滚不能当作已执行测试，已纠正当前覆盖说明。
+- 静态核对通过：9份文档、68个本地链接、30处命令入口；4个交付文件大小与SHA-256匹配，扩展ZIP/IPA CRC与内部版本通过。客户端源码/二进制和既有机器验收报告未改动。
+
+## 2026-10-11 Windows 修复范围
+审查确认：会话媒体串线、重新下载取消竞态、HLS重定向基准、YouTube分辨率降级、Bilibili分P/多段、抖音HTML兜底、搜索范围与分页。已有49测试在审查中通过但未覆盖这些路径；本次补失败回归。
+
+修复结果：媒体捕获按窗口过滤，同Session排队；手动/自动重新解析共用取消控制并检查任务身份；HLS使用最终URL；YouTube精确高度；Bilibili按p选cid/多段拒绝；抖音延后关闭HTML；搜索清理失效scope并绑定提交关键词。独立复核未发现新阻断项。
+
+Windows当前本地交付更新为release/1.0.1（setup与portable）；SHA256SUMS和package-validation记录哈希。旧Windows发布产物已按授权清理。安装/卸载与portable自解压启动未执行，打包应用及内嵌负载已验证。
+
+## 2026-10-27 GitHub 同步核查
+本地无 .git；README 指向 gaopan513/videoDownload，三端版本为扩展1.0.7、Windows1.0.1、iOS1.0.0(11)。本轮新增核查记录不作为原有未上传改动的判断依据。
+
+远端 main 为194d5247（2026-10-08）；GitHub Releases 为空。扩展主体与Windows搜索/Meta/YouTube/1.0.1修复未上传；iOS原生源码仅有换行差异。111项待同步文件（含本轮忽略规则及临时测试证书生成修正），无远端独有文件。探针报告/预览和测试私钥保留本地。yt-dlp是随包官方工具，按既有THIRD_PARTY的SHA256核验后随源码上传。

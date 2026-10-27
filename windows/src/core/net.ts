@@ -32,7 +32,7 @@ export class Network {
   agent: ProxyAgent;
   constructor(public context: Context, proxy = '') { this.agent = new ProxyAgent({ getProxyForUrl: url => proxy || resolveSystemProxy?.(url) || '' }); }
   close() { this.agent.destroy(); }
-  async open(url: string, signal: AbortSignal, extra: Record<string, string> = {}, redirects = 0): Promise<IncomingMessage> {
+  async open(url: string, signal: AbortSignal, extra: Record<string, string> = {}, redirects = 0): Promise<IncomingMessage & { url: string }> {
     const u = webUrl(url);
     const res = await new Promise<IncomingMessage>((resolve, reject) => {
       const req = (u.protocol === 'https:' ? https : http).request(u, { agent: this.agent, headers: { ...requestHeaders(url, this.context), ...extra }, signal }, response => { clearTimeout(connectTimer); resolve(response); });
@@ -45,12 +45,12 @@ export class Network {
     }
     if (res.statusCode === 401 || res.statusCode === 403) { res.resume(); throw new DownloadError('AUTH', '资源需要授权或下载地址已过期'); }
     if (!res.statusCode || res.statusCode >= 400) { res.resume(); throw new DownloadError(res.statusCode! >= 500 || res.statusCode === 429 ? 'RETRY' : 'HTTP', `服务器返回 HTTP ${res.statusCode}`); }
-    return res;
+    return Object.assign(res, { url: u.href });
   }
   async bytes(url: string, signal: AbortSignal, headers: Record<string, string> = {}, limit = 64 * 1024 * 1024) {
     const res = await this.open(url, signal, headers); const chunks: Buffer[] = []; let count = 0;
     for await (const chunk of res) { count += chunk.length; if (count > limit) { res.destroy(); throw new DownloadError('LIMIT', '资源超出安全读取大小限制'); } chunks.push(chunk); }
-    return { data: Buffer.concat(chunks), headers: res.headers, status: res.statusCode };
+    return { data: Buffer.concat(chunks), headers: res.headers, status: res.statusCode, url: res.url };
   }
 }
 export async function retry<T>(fn: () => Promise<T>, signal: AbortSignal): Promise<T> {

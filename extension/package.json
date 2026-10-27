@@ -1,0 +1,27 @@
+{
+  "name": "streamharbor-extension",
+  "version": "1.0.7",
+  "description": "StreamHarbor 浏览器视频嗅探与下载插件",
+  "scripts": {
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "test:browser": "node scripts/test-browser.cjs",
+    "test:popup": "node scripts/test-popup-lifecycle.cjs",
+    "test:series": "node scripts/test-series.cjs",
+    "test:range": "node scripts/test-episode-range.cjs",
+    "test:ts": "node scripts/test-ts-segment.cjs",
+    "test:live-hls": "node scripts/test-live-hls.cjs",
+    "test:meta": "node scripts/test-meta.cjs",
+    "test:meta-browser": "node scripts/test-meta-browser.cjs"
+  },
+  "dependencies": {
+    "m3u8-parser": "^7.2.0",
+    "vue": "^3.5.13"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.306",
+    "@vitejs/plugin-vue": "^5.2.1",
+    "typescript": "^5.7.3",
+    "vite": "^6.1.0"
+  }
+}

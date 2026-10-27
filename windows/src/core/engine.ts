@@ -8,6 +8,7 @@ import type { EngineEvent, Job } from '../shared';
 import { Network, DownloadError, pool, retry } from './net';
 import { segments, decrypt, type Segment } from './hls';
 import { probe, run } from './media';
+import { downloadYoutubeVideo } from './ytdlp';
 
 export const hash = (b: string | Buffer) => createHash('sha256').update(b).digest('hex');
 export function safeName(name: string) { const value = name.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').replace(/[. ]+$/g, '').slice(0, 100) || 'video'; return /^(con|prn|aux|nul|com[0-9]|lpt[0-9])(?:\.|$)/i.test(value) ? '_' + value : value; }
@@ -24,7 +25,10 @@ export async function download(job: Job, signal: AbortSignal, emit: (e: EngineEv
   try {
     emit({ type: 'stage', state: 'downloading' });
     let input: string, audio: string | undefined; let duration = 0;
-    if (job.candidate.kind === 'mp4') input = await mp4();
+    if (job.candidate.kind === 'youtube') {
+      // yt-dlp 负责解析签名、下载 DASH 音视频并合并为单个 MP4；产物交回统一的 probe/remux/落盘流程。
+      input = await downloadYoutubeVideo(job.ytdlp, job.ffmpeg, job.candidate, dir, job.proxy, signal, emit);
+    } else if (job.candidate.kind === 'mp4') input = await mp4();
     else {
       const video = await hls(job.candidate.url, 'video'); input = video.path; duration = video.duration;
       if (job.candidate.audioUrl) audio = (await hls(job.candidate.audioUrl, 'audio')).path;
@@ -118,7 +122,7 @@ export async function download(job: Job, signal: AbortSignal, emit: (e: EngineEv
   }
   async function hls(url: string, prefix: string) {
     const manifest = await retry(() => net.bytes(url, signal, {}, 4 * 1024 * 1024), signal);
-    const list = segments(manifest.data.toString(), url);
+    const list = segments(manifest.data.toString(), manifest.url);
     const fingerprint = hash(JSON.stringify(list)); const stateFile = path.join(dir, prefix + '.json'); let state = await json(stateFile);
     if (state && state.fingerprint !== fingerprint) throw new DownloadError('CHANGED', '播放列表发生变化，无法安全续传；旧数据已保留');
     state ||= { fingerprint, parts: {} }; let saving = Promise.resolve(); let finished = 0;

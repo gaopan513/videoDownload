@@ -384,6 +384,7 @@ test('end-to-end download with domestic candidate passes probe validation', asyn
       deep: true,
       ffmpeg,
       ffprobe,
+      ytdlp: '',
       candidate: {
         id: randomUUID(),
         title: 'Domestic_Download_Test',
