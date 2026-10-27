@@ -451,3 +451,5 @@ Windows当前本地交付更新为release/1.0.1（setup与portable）；SHA256SU
 本地无 .git；README 指向 gaopan513/videoDownload，三端版本为扩展1.0.7、Windows1.0.1、iOS1.0.0(11)。本轮新增核查记录不作为原有未上传改动的判断依据。
 
 远端 main 为194d5247（2026-10-08）；GitHub Releases 为空。扩展主体与Windows搜索/Meta/YouTube/1.0.1修复未上传；iOS原生源码仅有换行差异。111项待同步文件（含本轮忽略规则及临时测试证书生成修正），无远端独有文件。探针报告/预览和测试私钥保留本地。yt-dlp是随包官方工具，按既有THIRD_PARTY的SHA256核验后随源码上传。
+
+最终同步：图标经GitHub网页提交f8a635bd，SHA与本地一致；其余源码提交f9a66b106155f6fb9445e08bbee5b35a9b7ecdfc。main完整树208文件与预期一致，111个新增/修改文件逐项Git blob SHA核验通过。原有源码均保留。GitHub连接器ICO上传自动审核多次超时，用户明确继续后改已登录ego-browser网页完成；本机Git/gh凭据不能访问仓库，未改凭据配置。
